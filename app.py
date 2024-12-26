@@ -19,6 +19,59 @@ os.environ['GOOGLE_API_KEY'] = os.getenv("GOOGLE_API_KEY")
 os.environ['TAVILY_API_KEY'] = os.getenv("TAVILY_API_KEY")
 os.environ['PINECONE_API_KEY'] = os.getenv("PINECONE_API_KEY")
 
+
+@app.route('/', methods=['GET'])
+def documentation():
+    """
+    Route to provide API documentation.
+    """
+    docs = {
+        "endpoints": [
+            {
+                "route": "/query",
+                "method": "GET",
+                "description": "Query the chatbot with a question and thread ID.",
+                "parameters": {
+                    "question": "The question to ask the chatbot (required).",
+                    "thread_id": "The thread ID for context (required)."
+                },
+                "response": {
+                    "response": "The chatbot's response.",
+                    "sources": "Sources related to the response."
+                }
+            },
+            {
+                "route": "/store_articles",
+                "method": "POST",
+                "description": "Store articles for a custom date range.",
+                "body": {
+                    "from_date": "Start date in 'YYYY-MM-DD' format (required).",
+                    "to_date": "End date in 'YYYY-MM-DD' format (required)."
+                },
+                "response": "Status and details of stored articles."
+            },
+            {
+                "route": "/store_daily_articles",
+                "method": "POST",
+                "description": "Fetch and store daily articles.",
+                "response": "Status and details of stored daily articles."
+            },
+            {
+                "route": "/generate_questions",
+                "method": "GET",
+                "description": "Generate questions from the latest articles in IndiaSpend.",
+                "response": "Generated questions and their details."
+            },
+            {
+                "route": "/documentation",
+                "method": "GET",
+                "description": "Get the API documentation for available endpoints."
+            }
+        ]
+    }
+    return jsonify(docs), 200
+
+
 @app.route('/query', methods=['GET'])
 def query_bot():
     question = request.args.get('question')
