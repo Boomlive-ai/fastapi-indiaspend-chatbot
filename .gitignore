@@ -1,0 +1,37 @@
+# Ignore Python environment files
+.env
+
+# Ignore virtual environments
+.venv/
+
+# Ignore Python cache files
+__pycache__/
+*.py[cod]
+*.pyo
+
+
+# Ignore logs
+*.log
+
+# Ignore test result files
+.coverage
+htmlcov/
+.cache/
+
+# Ignore IDE or editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+
+# Ignore OS-generated files
+.DS_Store
+Thumbs.db
+.vercel
+
+
+
+#others
+
+uploads
