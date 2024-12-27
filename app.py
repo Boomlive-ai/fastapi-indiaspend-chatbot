@@ -6,7 +6,8 @@ from langchain_core.messages import HumanMessage
 from utils import extract_last_human_message_and_sources, prioritize_sources
 from tools import fetch_questions_on_latest_articles_in_IndiaSpend
 from vectorstore import StoreCustomRangeArticles, StoreDailyArticles
-# Initialize Flask app
+# Initialize Flask 
+
 app = Flask(__name__)
 mybot=Chatbot()
 workflow=mybot()
@@ -124,6 +125,10 @@ async def store_articles():
     except Exception as e:
         print(f"Error in store_articles: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+
+
+
 
 @app.route('/store_daily_articles', methods=['POST'])
 async def store_daily_articles_route():
