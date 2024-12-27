@@ -31,9 +31,9 @@ USER appuser
 # Expose the Flask app's default port
 EXPOSE 5000
 
-# Add a health check to verify the app is running
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5000/ || exit 1
+# # Add a health check to verify the app is running
+# HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+#     CMD curl -f http://localhost:5000/ || exit 1
 
 # Command to run the Flask app
 CMD ["flask", "run"]
