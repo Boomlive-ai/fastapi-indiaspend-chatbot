@@ -6,9 +6,12 @@ from langchain_core.messages import HumanMessage
 from utils import extract_last_human_message_and_sources, prioritize_sources
 from tools import fetch_questions_on_latest_articles_in_IndiaSpend
 from vectorstore import StoreCustomRangeArticles, StoreDailyArticles
+from flask_cors import CORS  # Import CORS
+
 # Initialize Flask 
 
 app = Flask(__name__)
+CORS(app)  # Allow all origins
 mybot=Chatbot()
 workflow=mybot()
 application = app
