@@ -1,138 +1,137 @@
-# importing a necessary library
-import os
 from typing import Literal
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_pinecone import PineconeVectorStore, Pinecone
+from langchain_openai import ChatOpenAI
+from langchain_openai import OpenAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
 from langchain.chains.retrieval_qa.base import RetrievalQA
-from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.tools import tool, StructuredTool
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
-from langchain_community.tools.tavily_search import TavilySearchResults
-import pinecone
 from pydantic import BaseModel, Field
-from langchain_core.tools import StructuredTool
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.chat_models import ChatOpenAI
 
 class RAGQuery(BaseModel):
     query: str = Field(..., description="The query to retrieve relevant content for")
-# Define a Document class to simulate the structure
-class Document:
-    def __init__(self, id: str, metadata: dict, page_content: str):
-        self.id = id
-        self.metadata = metadata
-        self.page_content = page_content
-
-
 
 class RAGTool:
     def __init__(self):
         self.embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-        self.index_name = "india-spend"  # Replace with your actual index name
-        self.vectorstore = PineconeVectorStore(index_name=self.index_name, embedding=self.embeddings)
-        self.llm = ChatOpenAI(temperature=0, model_name='gpt-4o')
-        self.pine_index =  Pinecone(index_name="india-spend", embedding=self.embeddings)
-        self.retriever = self.vectorstore.as_retriever()
+        self.index_name = "india-spend"
+        self.vectorstore = PineconeVectorStore(
+            index_name=self.index_name,
+            embedding=self.embeddings
+        )
+        self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
+        self.retriever = self.vectorstore.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": 5}
+        )
         self.rag_chain = RetrievalQA.from_chain_type(
             llm=self.llm,
             chain_type="stuff",
-            retriever=self.retriever
+            retriever=self.retriever,
+            return_source_documents=True  # Enable source document return
         )
 
-    def retrieve(self, query: RAGQuery) -> str:
+    def retrieve(self, query: RAGQuery) -> dict:
         print(f"Retrieving for query: {query.query}")
-        retriever = self.pine_index.as_retriever(search_type="similarity", search_kwargs={"k": 5})
-        similar_docs = retriever.get_relevant_documents(query.query)
-        # Extract all source links into a list
-        source_links = [doc.metadata['source'] for doc in similar_docs]
-
-        print("SIMILAR_LINKS",source_links)
+        similar_docs = self.retriever.get_relevant_documents(query.query)
+        source_links = [doc.metadata.get('source', 'No source') for doc in similar_docs]
+        
         result = self.rag_chain.invoke(query.query)
-        print(f"This is the result generated from vector store {result}")
-        response_result = result['result'] if 'result' in result else "No relevant information found."
-        return {"result": response_result, "sources": source_links}
-
+        if isinstance(result, dict):
+            response_result = result.get('result', str(result))
+            source_documents = result.get('source_documents', [])
+            source_links.extend([doc.metadata.get('source', 'No source') for doc in source_documents])
+        else:
+            response_result = str(result)
+            
+        # Remove duplicates while preserving order
+        source_links = list(dict.fromkeys(source_links))
+        
+        return {
+            "result": response_result,
+            "sources": source_links
+        }
 
 class Chatbot:
     def __init__(self):
-        self.llm=ChatGoogleGenerativeAI(model="gemini-1.5-flash")
+        self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
         self.memory = MemorySaver()
         self.rag_tool = RAGTool()
+        self.tool_node = None
+        self.app = None
 
-    def call_tool(self):
-        # tool = TavilySearchResults(max_results=2)
+        # Define the chatbot's system message
+        self.system_message = SystemMessage(
+            content=(
+                "You are IndiaSpend AI, an expert chatbot designed to answer questions related to IndiaSpend articles, reports, and data analysis. "
+                "Your responses should be fact-based, sourced from IndiaSpend's database, and align with IndiaSpend's journalistic style. "
+                "You should provide clear, well-structured answers and cite sources where applicable. "
+                "Website: [IndiaSpend](https://www.indiaspend.com/)."
+            )
+        )
+
+    def setup_tools(self):
         rag_tool = StructuredTool.from_function(
             func=self.rag_tool.retrieve,
             name="RAG",
-            description="Retrieve relevant content from the knowledge base",
+            description="Retrieve relevant content from IndiaSpend's knowledge base",
             args_schema=RAGQuery
         )
-        tools = [rag_tool]
         self.tool_node = ToolNode(tools=[rag_tool])
-        self.llm_with_tool=self.llm.bind_tools(tools)
 
-    def needs_rag_tool(self, query):
-        retrieval_indicators = ["information", "details", "data", "explain", "describe", "overview", "summary", "insight"]
-        if any(keyword in query.lower() for keyword in retrieval_indicators):
-            return True
-        if len(query.split()) > 5:  # Consider longer queries as potentially needing retrieval
-            return True
-        return False
-    
-    def should_use_rag(self, query):
-        decision_prompt = f"Does this query require retrieving external information to answer accurately just return yes or no? Query: {query}"
-        decision = self.llm.invoke([HumanMessage(content=decision_prompt)])
+    def should_use_rag(self, query: str) -> bool:
+        decision_prompt = f"Does this query require retrieving external information to answer accurately? Answer only 'yes' or 'no'. Query: {query}"
+        decision = self.llm.invoke([self.system_message, HumanMessage(content=decision_prompt)])
         return "yes" in decision.content.lower()
-  
-    def call_model(self, state: MessagesState):
+
+    def call_model(self, state: MessagesState) -> dict:
         messages = state['messages']
         last_message = messages[-1]
         query = last_message.content
-        source_links = []
-        print(query, self.should_use_rag(query))
-        if  self.should_use_rag(query) == True:
-            print(f"Triggering RAG tool for query: {last_message.content}")
-            rag_result = self.rag_tool.retrieve(RAGQuery(query=last_message.content))
-            result_text = rag_result['result']
-            source_links = rag_result['sources']
-            
-            # Format the response with the sources
-            formatted_sources = "\n\nSources:\n" + "\n".join(source_links) if source_links else "\n\nNo sources available."
-            context_message = AIMessage(content=f"{result_text}{formatted_sources}")
-            
-            combined_message = HumanMessage(content=f"Provide Detail Explanation on this Question: {last_message.content}, Consider this context for answering the question and do not mention that you are answering using this context in answer even if context or source is not present\n\n{context_message.content}, Note you are chatbot of IndiaSpeend so answer question in similar style and do not mention anything about links provided")
-            messages[-1] = combined_message
-        
-        response = self.llm_with_tool.invoke(messages)
-        
-        # Format the response with sources
-        if hasattr(response, 'additional_kwargs') and 'tool_calls' in response.additional_kwargs:
-            sources = [call.name for call in response.additional_kwargs['tool_calls']]
-            formatted_response = f"{response.content}\n\nSources used: {', '.join(sources)}"
-        else:
-            formatted_response = response.content
-        
-        return {"messages": [AIMessage(content=formatted_response)]}
+        sources = []
 
-    
+        if self.should_use_rag(query):
+            print(f"Triggering RAG tool for query: {query}")
+            rag_result = self.rag_tool.retrieve(RAGQuery(query=query))
+            result_text = rag_result['result']
+            sources = rag_result['sources']
+            
+            # Format response with context and sources
+            context = f"Context: {result_text}"
+            prompt = (
+                f"Question: {query}\n\n"
+                f"{context}\n\n"
+                "Provide a detailed response using IndiaSpend's reporting style, ensuring accuracy and data-backed insights."
+            )
+
+            response = self.llm.invoke([self.system_message, HumanMessage(content=prompt)])
+            formatted_response = f"{response.content}\n\nSources:\n" + "\n".join(sources)
+            return {"messages": [AIMessage(content=formatted_response)]}
+        
+        # For non-RAG queries, process normally
+        response = self.llm.invoke([self.system_message] + messages)
+        return {"messages": [AIMessage(content=response.content)]}
+
     def router_function(self, state: MessagesState) -> Literal["tools", END]:
         messages = state['messages']
         last_message = messages[-1]
-        if last_message.tool_calls:
-            return "tools"
-        return END
+        return "tools" if getattr(last_message, 'tool_calls', None) else END
 
     def __call__(self):
-        self.call_tool()
+        self.setup_tools()
         workflow = StateGraph(MessagesState)
+        
         workflow.add_node("agent", self.call_model)
         workflow.add_node("tools", self.tool_node)
         workflow.add_edge(START, "agent")
-        workflow.add_conditional_edges("agent", self.router_function, {"tools": "tools", END: END})
-        workflow.add_edge("tools", 'agent')
+        workflow.add_conditional_edges(
+            "agent",
+            self.router_function,
+            {"tools": "tools", END: END}
+        )
+        workflow.add_edge("tools", "agent")
+        
         self.app = workflow.compile(checkpointer=self.memory)
         return self.app
-        
-    

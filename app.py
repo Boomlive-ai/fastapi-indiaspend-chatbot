@@ -3,7 +3,7 @@ from flask import Flask, request, jsonify
 from bot import Chatbot
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
-from utils import extract_last_human_message_and_sources, prioritize_sources
+from utils import extract_sources_and_result, prioritize_sources
 from tools import fetch_questions_on_latest_articles_in_IndiaSpend
 from vectorstore import StoreCustomRangeArticles, StoreDailyArticles
 from flask_cors import CORS  # Import CORS
@@ -89,8 +89,7 @@ def query_bot():
         response = workflow.invoke(input_data, config={"configurable": {"thread_id": thread_id}})
         result = response['messages'][-1].content
         # print("response['messages'][-1]",response)
-        raw_sources  = extract_last_human_message_and_sources(response)
-
+        result,raw_sources  = extract_sources_and_result(result)
         sources = prioritize_sources(result, raw_sources)
         if not result:
             result = "No response generated. Please try again."

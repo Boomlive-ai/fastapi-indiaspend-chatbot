@@ -3,6 +3,41 @@ from langchain_core.messages import HumanMessage
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+
+
+
+def extract_sources_and_result(result: str):
+    """
+    Extracts URLs from the given result string and returns the result without sources.
+
+    Args:
+        result (str): The response content containing the sources.
+
+    Returns:
+        tuple: A tuple with two elements:
+            1. result_without_sources (str): The content without the sources part.
+            2. sources (list): A list of source URLs extracted from the result.
+    """
+    # Use regular expression to find all URLs in the result string
+    sources = re.findall(r'https?://[^\s]+', result)
+    
+    # Remove all URLs from the result string
+    result_without_sources = re.sub(r'https?://[^\s]+', '', result).strip()
+
+    # Remove the "Sources" section and anything after it
+    result_without_sources = re.sub(r'(Sources?:|References?:|See also:|Source:).*', '', result_without_sources).strip()
+
+    # Remove any other potential sources-related headers (like "Related Articles", etc.)
+    result_without_sources = re.sub(r'\s*(Sources?|References?|See also?):.*', '', result_without_sources).strip()
+
+    # Remove leading or trailing whitespace after the replacement
+    result_without_sources = result_without_sources.strip()
+
+    # Remove duplicates from sources
+    sources = list(set(sources))
+
+    return result_without_sources, sources
+
 def prioritize_sources(response_text: str, sources: list) -> list:
     """
     Reorder sources based on similarity to the response text.
