@@ -8,29 +8,44 @@ llm = ChatOpenAI(temperature=0, model_name='gpt-4o')
 
 def generate_questions_batch(articles):
     """
-    Generates concise questions for a batch of articles using an LLM.
+    Generates specific, concise questions for a batch of articles using an LLM,
+    focusing on keywords and actionable information. The questions are returned 
+    randomly arranged and cleaned up.
 
     Parameters:
         articles (list): List of article dictionaries.
 
     Returns:
-        list: A list of questions generated from all the articles.
+        list: A list of questions randomly arranged and cleaned up.
     """
     # Construct a single prompt for all articles in the batch
     input_prompts = []
+    
     for i, article in enumerate(articles):
         title = article.get("heading", "Untitled Article")
         description = article.get("description", "No description available.")
         story = article.get("story", "No story content available.")
+        
+        # Extract keywords from the article description and story for more specific question generation
+        keywords = list(set(re.findall(r'\b\w+\b', description + " " + story.lower())))[:10]  # Convert set to list and slice first 10 words
+        
         input_prompts.append(f"""
         Article {i + 1}:
         Title: {title}
         Description: {description}
         Story Excerpt: {story[:500]}... (truncated for brevity)
-        Generate two simple, concise questions (under 60 characters) 
-        that users are likely to ask. Do not number the questions.
+        Keywords: {', '.join(keywords)}
+        Generate two concise, specific questions (under 60 characters) that users are likely to ask.
+        Make sure the questions:
+        1. Use keywords directly from the article.
+        2. Focus on actionable or data-driven information.
+        3. Reflect issues or events discussed in the article.
+        4. Do not include article labels (e.g., "**Article X:**").
+        5. Remove any bullet points (e.g., "-") from the questions.
+        6. Return the questions in a shuffled order.
+        7. Do not include empty questions or strings.
+        Do not number the questions.
         """)
-
 
     # Combine all prompts into one input
     batch_prompt = "\n".join(input_prompts)
@@ -42,14 +57,17 @@ def generate_questions_batch(articles):
         # Invoke the LLM with the message
         response = llm.invoke([message])
 
-        # Extract and clean the questions from the response
+        # Split the response into individual lines (questions)
         questions = response.content.strip().split("\n")
-        cleaned_questions = [re.sub(r'^\d+\.\s*', '', q).strip() for q in questions if q.strip()]
+
+        # Remove any empty strings from the list of questions
+        cleaned_questions = [q.strip() for q in questions if q.strip()]
+
         return cleaned_questions
+
     except Exception as e:
         print(f"Error generating questions: {e}")
         return []
-
 
 def fetch_questions_on_latest_articles_in_IndiaSpend():
     """
