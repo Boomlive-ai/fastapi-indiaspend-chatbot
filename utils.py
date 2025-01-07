@@ -149,8 +149,6 @@ from langchain.schema import Document
 from langchain_pinecone import Pinecone
 from langchain_openai import OpenAIEmbeddings
 
-
-
 async def store_daily_articles():
     """
     Fetch and store articles for the current day asynchronously.
@@ -158,18 +156,41 @@ async def store_daily_articles():
     Returns:
         list: List of article URLs stored for the current day.
     """
-    # Get today's date
-    today = datetime.date.today()
-    from_date = to_date = today.strftime('%Y-%m-%d')  # Both dates set to today
+    article_urls = []
+    index_name = "india-spend"
 
-    print(f"Storing articles for {from_date}...")
     try:
-        # Use the existing function to store articles for today
-        daily_articles = await store_articles_custom_range(from_date, to_date)
-        return daily_articles
+        api_url = f'https://indiaspend.com/dev/h-api/news'
+        headers = {
+            "accept": "*/*",
+            "s-id": "yP4PEm9PqCPxxiMuHDyYz0PIjAHxHbYpTQi9E4AtNk0R4bp9Lsf0hyN4AEKKiM9I"
+        }
+        print(f"Current API URL: {api_url}")
+
+        response = requests.get(api_url, headers=headers)
+
+        if response.status_code == 200:
+            data = response.json()
+
+            # Break if no articles are found
+            if not data.get("news"):
+                return
+            for news_item in data.get("news", []):
+                url_path = news_item.get("url")
+                if url_path:
+                    article_urls.append(url_path)
+             # # Filter and process URLs
+            filtered_urls = await filter_urls_custom_range(json.dumps(article_urls))
+            # print("These are filtered urls",filtered_urls)
+            docsperindex = await fetch_docs_custom_range(filtered_urls)
+            print(f"Processed {len(filtered_urls)} articles and {len(docsperindex)} chunks to add to Pinecone.")
+
+            await store_docs_in_pinecone(docsperindex, index_name, filtered_urls)
+        return article_urls
     except Exception as e:
         print(f"Error in store_daily_articles: {str(e)}")
         return []
+
 
 
 async def store_articles_custom_range(from_date: str = None, to_date: str = None):
