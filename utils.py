@@ -186,7 +186,7 @@ async def store_daily_articles():
             print(f"Processed {len(filtered_urls)} articles and {len(docsperindex)} chunks to add to Pinecone.")
 
             await store_docs_in_pinecone(docsperindex, index_name, filtered_urls)
-        return article_urls
+        return filtered_urls
     except Exception as e:
         print(f"Error in store_daily_articles: {str(e)}")
         return []
