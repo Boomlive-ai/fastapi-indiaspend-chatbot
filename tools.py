@@ -34,15 +34,16 @@ def generate_questions_batch(articles):
         Description: {description}
         Story Excerpt: {story[:500]}... (truncated for brevity)
         Keywords: {', '.join(keywords)}
-        Generate two concise, specific questions (under 60 characters) that users are likely to ask.
-        Make sure the questions:
-        1. Use keywords directly from the article.
-        2. Focus on actionable or data-driven information.
-        3. Reflect issues or events discussed in the article.
-        4. Do not include article numbers, labels, or bullet points.
-        5. Do not include empty questions or strings.
-        Do not number the questions.
+        Generate two concise, specific questions (under 60 characters) based on the article content.
+        Ensure the questions meet the following criteria:
+        1. Focus on actionable or data-driven information from the article.
+        2. Do not include the article title, article labels, or headings in the questions.
+        3. Do not use bullet points or article numbers.
+        4. Return only the questions (no introductory text or labels).
+        5. Keep the questions under 60 characters each.
+        6. Return the questions in a shuffled order.
         """)
+
 
 
     # Combine all prompts into one input
