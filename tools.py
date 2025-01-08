@@ -30,7 +30,6 @@ def generate_questions_batch(articles):
         keywords = list(set(re.findall(r'\b\w+\b', description + " " + story.lower())))[:10]  # Convert set to list and slice first 10 words
         
         input_prompts.append(f"""
-        Article {i + 1}:
         Title: {title}
         Description: {description}
         Story Excerpt: {story[:500]}... (truncated for brevity)
@@ -40,12 +39,11 @@ def generate_questions_batch(articles):
         1. Use keywords directly from the article.
         2. Focus on actionable or data-driven information.
         3. Reflect issues or events discussed in the article.
-        4. Do not include article labels (e.g., "**Article X:**").
-        5. Remove any bullet points (e.g., "-") from the questions.
-        6. Return the questions in a shuffled order.
-        7. Do not include empty questions or strings.
+        4. Do not include article numbers, labels, or bullet points.
+        5. Do not include empty questions or strings.
         Do not number the questions.
         """)
+
 
     # Combine all prompts into one input
     batch_prompt = "\n".join(input_prompts)
