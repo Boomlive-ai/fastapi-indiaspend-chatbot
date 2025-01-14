@@ -1,9 +1,7 @@
-import re
+import re, json
 from langchain_core.messages import HumanMessage
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-
-
 
 
 def extract_sources_and_result(result: str):

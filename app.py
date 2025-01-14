@@ -1,35 +1,145 @@
-import os, requests
-from flask import Flask, request, jsonify
+import os, json
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from bot import Chatbot
 from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessageChunk
 from utils import extract_sources_and_result, prioritize_sources
 from tools import fetch_questions_on_latest_articles_in_IndiaSpend
 from vectorstore import StoreCustomRangeArticles, StoreDailyArticles
-from flask_cors import CORS  # Import CORS
+from fastapi import FastAPI, HTTPException
 
-# Initialize Flask 
 
-app = Flask(__name__)
-CORS(app)  # Allow all origins
-mybot=Chatbot()
-workflow=mybot()
-application = app
+# Initialize FastAPI
+app = FastAPI()
 
-# Initialize Environment Variables
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+# Initialize environment variables
 load_dotenv()
 os.environ['GOOGLE_API_KEY'] = os.getenv("GOOGLE_API_KEY")
 os.environ['TAVILY_API_KEY'] = os.getenv("TAVILY_API_KEY")
 os.environ['PINECONE_API_KEY'] = os.getenv("PINECONE_API_KEY")
+os.environ['OPENAI_API_KEY']= os.getenv("OPENAI_API_KEY")
+# Initialize chatbot
+mybot = Chatbot()
+workflow = mybot()
+
+# Request models
+class ArticleRangeRequest(BaseModel):
+    from_date: str
+    to_date: str
+
+ 
+    
+@app.get("/stream_query")
+async def stream_query_bot(question: str, thread_id: str):
+    if not question or not thread_id:
+        raise HTTPException(status_code=400, detail="Missing required parameters.")
+    
+    input_data = {"messages": [HumanMessage(content=question)]}
+
+    async def stream_chunks():
+        sources = []
+        try:
+            async for event in workflow.astream_events(input_data, config={"configurable": {"thread_id": thread_id}}, version="v2"):
+                # print(event["event"])
+                if event["event"]=="on_retriever_end":
+                    print("*************************************************************************")
+                    # print(event["data"])  # Debug print to check the data structure
+
+                    # Extract sources from the "output" field
+                    output = event["data"].get("output", [])
+                    if isinstance(output, list):  # Ensure the output is a list
+                        sources.extend(
+                            [doc.metadata.get("source") for doc in output if doc.metadata.get("source")]
+                        )  # Print the extracted sources
+                       
+
+                if event["event"] == "on_chat_model_stream":
+                    chunk = event["data"]["chunk"]
+                    if isinstance(chunk, AIMessageChunk):
+                        # print(chunk.content)
+                        yield f"data: {chunk.content}\n\n"  # Format for SSE
+                    else:
+                        yield "data: Invalid chunk type\n\n"
+        except Exception as e:
+            yield f"data: Error in query_bot: {str(e)}\n\n"
+        finally:
+        # Send the end marker when the stream finishes
+            yield "data: [end]\n\n"
+            if sources:
+                yield f"data: {json.dumps({'sources': sources})}\n\n"
+
+    return StreamingResponse(
+        stream_chunks(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
 
 
-@app.route('/', methods=['GET'])
-def documentation():
-    """
-    Route to provide API documentation.
-    """
-    docs = {
+@app.get("/query")
+async def query_bot(question: str, thread_id: str):
+    if not question or not thread_id:
+        raise HTTPException(status_code=400, detail="Missing required parameters.")
+    
+    input_data = {"messages": [HumanMessage(content=question)]}
+    try:
+        response = workflow.invoke(input_data, config={"configurable": {"thread_id": thread_id}})
+        result = response['messages'][-1].content
+        result, raw_sources = extract_sources_and_result(result)
+        sources = prioritize_sources(result, raw_sources)
+        if not result:
+            result = "No response generated. Please try again."
+        return {"response": result, "sources": sources}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in query_bot: {str(e)}")
+
+# Store articles for a custom date range
+@app.post("/store_articles")
+async def store_articles(data: ArticleRangeRequest):
+    try:
+        store_articles_handler = StoreCustomRangeArticles()
+        result = await store_articles_handler.invoke(from_date=data.from_date, to_date=data.to_date)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in store_articles: {str(e)}")
+
+# Store daily articles
+@app.post("/store_daily_articles")
+async def store_daily_articles():
+    try:
+        store_articles_handler = StoreDailyArticles()
+        result = await store_articles_handler.invoke()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in store_daily_articles: {str(e)}")
+
+# Generate questions from latest articles
+@app.get("/generate_questions")
+async def generate_questions():
+    try:
+        results = fetch_questions_on_latest_articles_in_IndiaSpend()
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error in generate_questions: {str(e)}")
+
+# Documentation endpoint
+@app.get("/")
+async def documentation():
+    return {
         "endpoints": [
             {
                 "route": "/query",
@@ -66,105 +176,11 @@ def documentation():
                 "description": "Generate questions from the latest articles in IndiaSpend.",
                 "response": "Generated questions and their details."
             },
-            {
-                "route": "/documentation",
-                "method": "GET",
-                "description": "Get the API documentation for available endpoints."
-            }
         ]
     }
-    return jsonify(docs), 200
+   
+# import uvicorn
 
-
-@app.route('/query', methods=['GET'])
-def query_bot():
-    question = request.args.get('question')
-    thread_id = request.args.get('thread_id')
-    sources = []
-    if not question or not thread_id:
-        return jsonify({"error": "Missing required parameters"}), 400
-
-    input_data = {"messages": [HumanMessage(content=question)]}
-    try:
-        response = workflow.invoke(input_data, config={"configurable": {"thread_id": thread_id}})
-        result = response['messages'][-1].content
-        # print("response['messages'][-1]",response)
-        result,raw_sources  = extract_sources_and_result(result)
-        sources = prioritize_sources(result, raw_sources)
-        if not result:
-            result = "No response generated. Please try again."
-        return jsonify({"response": result, "sources": sources})
-    except Exception as e:
-        print(f"Error in query_bot: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-
-
-
-# Route for Storing Articles with Custom Date Range
-@app.route('/store_articles', methods=['POST'])
-async def store_articles():
-    """
-    Store articles for a custom date range.
-    Query Parameters:
-        - from_date (str): Start date in 'YYYY-MM-DD' format.
-        - to_date (str): End date in 'YYYY-MM-DD' format.
-    """
-    # Extract dates from JSON payload
-    data = request.get_json()
-    from_date = data.get('from_date')
-    to_date = data.get('to_date')
-
-    # Validate input
-    if not from_date or not to_date:
-        return jsonify({"error": "Missing 'from_date' or 'to_date' in request body"}), 400
-
-    # Instantiate and invoke the StoreCustomRangeArticles class
-    try:
-        store_articles_handler = StoreCustomRangeArticles()
-        result = await store_articles_handler.invoke(from_date=from_date, to_date=to_date)
-        return jsonify(result)
-    except Exception as e:
-        print(f"Error in store_articles: {str(e)}")
-        return jsonify({"error": str(e)}), 500
-
-
-
-
-
-@app.route('/store_daily_articles', methods=['POST'])
-async def store_daily_articles_route():
-    """
-    Async route to fetch and store daily articles.
-    """
-    try:
-        # Instantiate the handler class
-        store_articles_handler = StoreDailyArticles()
-        
-        # Invoke the class method
-        result = await store_articles_handler.invoke()
-        
-        # Return JSON response
-        return jsonify(result)
-    except Exception as e:
-        print(f"Error in /store_daily_articles: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-    
-
-
-@app.route('/generate_questions', methods=['GET'])
-def generate_questions_route():
-    """
-    Route to fetch articles and generate questions using imported functions.
-    """
-    try:
-        # Call the imported function to fetch and generate questions
-        results = fetch_questions_on_latest_articles_in_IndiaSpend()
-        return jsonify(results), 200
-    except Exception as e:
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
-
-
-
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+# if __name__ == "__main__":
+#     print("Starting FastAPI server...")
+#     uvicorn.run(app, host="192.168.0.101", port=5000, log_level="info")

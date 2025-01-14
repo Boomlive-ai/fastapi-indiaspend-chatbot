@@ -9,6 +9,12 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from dotenv import load_dotenv
+load_dotenv()
+
+import os
+os.environ['OPENAI_API_KEY']= os.getenv("OPENAI_API_KEY")
 
 class RAGQuery(BaseModel):
     query: str = Field(..., description="The query to retrieve relevant content for")
@@ -107,12 +113,14 @@ class Chatbot:
             )
 
             response = self.llm.invoke([self.system_message, HumanMessage(content=prompt)])
+            
             formatted_response = f"{response.content}\n\nSources:\n" + "\n".join(sources)
-            return {"messages": [AIMessage(content=formatted_response)]}
+            return {"messages": [AIMessage(content=formatted_response)], "sources":sources}
         
         # For non-RAG queries, process normally
         response = self.llm.invoke([self.system_message] + messages)
-        return {"messages": [AIMessage(content=response.content)]}
+        # print(response.content)
+        return {"messages": [AIMessage(content=response.content)] , "sources":sources}
 
     def router_function(self, state: MessagesState) -> Literal["tools", END]:
         messages = state['messages']
