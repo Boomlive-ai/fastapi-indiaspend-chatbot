@@ -76,9 +76,9 @@ async def stream_query_bot(question: str, thread_id: str):
             yield f"data: Error in query_bot: {str(e)}\n\n"
         finally:
         # Send the end marker when the stream finishes
-            yield "data: [end]\n\n"
             if sources:
                 yield f"data: {json.dumps({'sources': sources})}\n\n"
+            yield "data: [end]\n\n"
 
     return StreamingResponse(
         stream_chunks(),
