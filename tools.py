@@ -25,7 +25,7 @@ def generate_questions_batch(articles):
         title = article.get("heading", "Untitled Article")
         description = article.get("description", "No description available.")
         story = article.get("story", "No story content available.")
-        
+        url = article.get("url")
         # Extract keywords from the article description and story for more specific question generation
         keywords = list(set(re.findall(r'\b\w+\b', description + " " + story.lower())))[:10]  # Convert set to list and slice first 10 words
         
@@ -34,7 +34,8 @@ def generate_questions_batch(articles):
         Description: {description}
         Story Excerpt: {story[:500]}... (truncated for brevity)
         Keywords: {', '.join(keywords)}
-        Generate two concise, specific questions (under 60 characters) based on the article content.
+        Url: {url}
+        Generate two concise,interesting, specific and relevant questions (under 60 characters) based on the article content which user want to know about latest articles.
         Ensure the questions meet the following criteria:
         1. Focus on actionable or data-driven information from the article.
         2. Do not include the article title, article labels, or headings in the questions.

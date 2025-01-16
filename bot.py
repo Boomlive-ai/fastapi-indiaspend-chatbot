@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from dotenv import load_dotenv
 load_dotenv()
+from datetime import datetime
 
 import os
 os.environ['OPENAI_API_KEY']= os.getenv("OPENAI_API_KEY")
@@ -44,19 +45,19 @@ class RAGTool:
         similar_docs = self.retriever.get_relevant_documents(query.query)
         source_links = [doc.metadata.get('source', 'No source') for doc in similar_docs]
         
-        result = self.rag_chain.invoke(query.query)
-        if isinstance(result, dict):
-            response_result = result.get('result', str(result))
-            source_documents = result.get('source_documents', [])
-            source_links.extend([doc.metadata.get('source', 'No source') for doc in source_documents])
-        else:
-            response_result = str(result)
+        # result = self.rag_chain.invoke(query.query + "Note do not mention anything about the provided context")
+        # if isinstance(result, dict):
+        #     response_result = result.get('result', str(result))
+        #     source_documents = result.get('source_documents', [])
+        #     source_links.extend([doc.metadata.get('source', 'No source') for doc in source_documents])
+        # else:
+        #     response_result = str(result)
             
         # Remove duplicates while preserving order
         source_links = list(dict.fromkeys(source_links))
         
         return {
-            "result": response_result,
+            # "result": response_result,
             "sources": source_links
         }
 
@@ -67,6 +68,7 @@ class Chatbot:
         self.rag_tool = RAGTool()
         self.tool_node = None
         self.app = None
+        current_date = datetime.now().strftime("%B %d, %Y")
 
         # Define the chatbot's system message
         self.system_message = SystemMessage(
@@ -75,6 +77,8 @@ class Chatbot:
                 "Your responses should be fact-based, sourced from IndiaSpend's database, and align with IndiaSpend's journalistic style. "
                 "You should provide clear, well-structured answers and cite sources where applicable. "
                 "Website: [IndiaSpend](https://www.indiaspend.com/)."
+                "Ensure the response is clear, relevant, and does not mention or imply the existence of any supporting material or Context even if does not help in answering query"
+                f"Note todays date is  {current_date}"
             )
         )
 
@@ -88,8 +92,44 @@ class Chatbot:
         self.tool_node = ToolNode(tools=[rag_tool])
 
     def should_use_rag(self, query: str) -> bool:
-        decision_prompt = f"Does this query require retrieving external information to answer accurately? Answer only 'yes' or 'no'. Query: {query}"
+        QUESTION_PREFIXES = """[
+    "what actions are needed to",
+    "how is",
+    "what is",
+    "how will",
+    "what measures are in place for",
+    "how many",
+    "what steps are being taken to",
+    "how can",
+    "what challenges do",
+    "how often is",
+    "what are the",
+    "why are",
+    "what sectors are",
+    "how does"]"""
+        decision_prompt = f"""Determine if external information retrieval needed. Answer yes if query:
+        - Requires specific facts/data
+        - References recent events
+        - Needs domain-specific knowledge
+        - Requires citations/sources
+        - if query starts with any of those {QUESTION_PREFIXES} and query makes sense.
+
+
+        Answer no if query:
+        - Is general knowledge
+        - Asks for computation/reasoning
+        - Requests creative content
+        - Is conversational
+        - If query is invalid like if user typed anything which is senseless for eg: "bcjbsabfshds"
+        - If query is just hii, hello type of message
+
+        Query: {query}"""
+        # print(decision_prompt)
         decision = self.llm.invoke([self.system_message, HumanMessage(content=decision_prompt)])
+        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+        print(decision.content.lower())
+        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+
         return "yes" in decision.content.lower()
 
     def call_model(self, state: MessagesState) -> dict:
@@ -97,29 +137,40 @@ class Chatbot:
         last_message = messages[-1]
         query = last_message.content
         sources = []
-
-        if self.should_use_rag(query):
+        should_use_rag = self.should_use_rag(query)
+        if should_use_rag:
             print(f"Triggering RAG tool for query: {query}")
             rag_result = self.rag_tool.retrieve(RAGQuery(query=query))
-            result_text = rag_result['result']
+            # result_text = rag_result['result']
             sources = rag_result['sources']
             
             # Format response with context and sources
-            context = f"Context: {result_text}"
+            context = f"Context: {sources}"
             prompt = (
-                f"Question: {query}\n\n"
-                f"{context}\n\n"
-                "Provide a detailed response using IndiaSpend's reporting style, ensuring accuracy and data-backed insights."
+            f"Answer the following question accurately and with data-backed insights in IndiaSpend's reporting style. "
+            f"Ensure the response is clear, relevant, and does not mention or imply the existence of any supporting material or Context:\n\n"
+            f"Question: {query}\n\n"
+            f"Context: {context}"
+            f"Note do not mention that you are using provided context and if context doesnt have anything related to query frame it as directly india spend bot is answering "
             )
 
+
+
             response = self.llm.invoke([self.system_message, HumanMessage(content=prompt)])
-            
+            print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+            print(response.content)
+            print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+
             formatted_response = f"{response.content}\n\nSources:\n" + "\n".join(sources)
             return {"messages": [AIMessage(content=formatted_response)], "sources":sources}
         
+        # print([self.system_message] + messages)
         # For non-RAG queries, process normally
         response = self.llm.invoke([self.system_message] + messages)
-        # print(response.content)
+        print("##################################################################")
+        print(response.content)
+        print("##################################################################")
+
         return {"messages": [AIMessage(content=response.content)] , "sources":sources}
 
     def router_function(self, state: MessagesState) -> Literal["tools", END]:
