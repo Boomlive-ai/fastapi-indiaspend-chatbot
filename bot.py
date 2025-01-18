@@ -41,7 +41,7 @@ class RAGTool:
         )
 
     def retrieve(self, query: RAGQuery) -> dict:
-        print(f"Retrieving for query: {query.query}")
+        # print(f"Retrieving for query: {query.query}")
         similar_docs = self.retriever.get_relevant_documents(query.query)
         source_links = [doc.metadata.get('source', 'No source') for doc in similar_docs]
         
@@ -126,9 +126,9 @@ class Chatbot:
         Query: {query}"""
         # print(decision_prompt)
         decision = self.llm.invoke([self.system_message, HumanMessage(content=decision_prompt)])
-        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-        print(decision.content.lower())
-        print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+        # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+        # print(decision.content.lower())
+        # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
 
         return "yes" in decision.content.lower()
 
@@ -139,7 +139,7 @@ class Chatbot:
         sources = []
         should_use_rag = self.should_use_rag(query)
         if should_use_rag:
-            print(f"Triggering RAG tool for query: {query}")
+            # print(f"Triggering RAG tool for query: {query}")
             rag_result = self.rag_tool.retrieve(RAGQuery(query=query))
             # result_text = rag_result['result']
             sources = rag_result['sources']
@@ -157,9 +157,9 @@ class Chatbot:
 
 
             response = self.llm.invoke([self.system_message, HumanMessage(content=prompt)])
-            print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
-            print(response.content)
-            print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+            # print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+            # print(response.content)
+            # print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
 
             formatted_response = f"{response.content}\n\nSources:\n" + "\n".join(sources)
             return {"messages": [AIMessage(content=formatted_response)], "sources":sources}
@@ -167,9 +167,9 @@ class Chatbot:
         # print([self.system_message] + messages)
         # For non-RAG queries, process normally
         response = self.llm.invoke([self.system_message] + messages)
-        print("##################################################################")
-        print(response.content)
-        print("##################################################################")
+        # print("##################################################################")
+        # print(response.content)
+        # print("##################################################################")
 
         return {"messages": [AIMessage(content=response.content)] , "sources":sources}
 

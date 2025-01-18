@@ -1,4 +1,4 @@
-import os, json
+import os, json, re
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -53,6 +53,11 @@ async def stream_query_bot(question: str, thread_id: str):
         try:
             async for event in workflow.astream_events(input_data, config={"configurable": {"thread_id": thread_id}}, version="v2"):
                 # print(event["event"])
+
+                if event["event"]=="on_chat_model_end":
+                    # print(event["data"])
+                    pass
+
                 if event["event"]=="on_retriever_end":
                     print("*************************************************************************")
                     # print(event["data"])  # Debug print to check the data structure
@@ -67,9 +72,16 @@ async def stream_query_bot(question: str, thread_id: str):
 
                 if event["event"] == "on_chat_model_stream":
                     chunk = event["data"]["chunk"]
+                    # print(chunk.content, end="|", flush=True)
                     if isinstance(chunk, AIMessageChunk):
-                        # print(chunk.content)
-                        yield f"data: {chunk.content}\n\n"  # Format for SSE
+                        # print(chunk)
+                        match = re.search(r"content='([^']+)'", str(chunk))
+                        if match:
+                            content = match.group(1)
+                            # content = content.replace('\n', '<br>')
+                            # content = content.replace('.\n\n', '.<br><br>')
+                            yield f"data: {content}\n\n"  # Format for SSE
+
                     else:
                         yield "data: Invalid chunk type\n\n"
         except Exception as e:
