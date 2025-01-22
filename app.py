@@ -89,6 +89,13 @@ async def stream_query_bot(question: str, thread_id: str):
         finally:
         # Send the end marker when the stream finishes
             if sources:
+                sources = prioritize_sources(question, sources)
+                print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+                print("QUESTION", question)
+                print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+                print("SOURCES", sources)
+                print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+
                 yield f"data: {json.dumps({'sources': sources})}\n\n"
             yield "data: [end]\n\n"
 
@@ -195,4 +202,4 @@ async def documentation():
 
 # if __name__ == "__main__":
 #     print("Starting FastAPI server...")
-#     uvicorn.run(app, host="192.168.0.101", port=5000, log_level="info")
+#     uvicorn.run(app, host="192.168.1.149", port=5000, log_level="info")

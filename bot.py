@@ -91,47 +91,60 @@ class Chatbot:
         )
         self.tool_node = ToolNode(tools=[rag_tool])
 
+    # def should_use_rag(self, query: str) -> bool:
+    #     QUESTION_PREFIXES = """[
+    # "what actions are needed to",
+    # "how is",
+    # "what is",
+    # "how will",
+    # "what measures are in place for",
+    # "how many",
+    # "what steps are being taken to",
+    # "how can",
+    # "what challenges do",
+    # "how often is",
+    # "what are the",
+    # "why are",
+    # "what sectors are",
+    # "how does"]"""
+    #     decision_prompt = f"""Determine if external information retrieval needed. Answer yes if query:
+    #     - Requires specific facts/data
+    #     - References recent events
+    #     - Needs domain-specific knowledge
+    #     - Requires citations/sources
+    #     - if query starts with any of those {QUESTION_PREFIXES} and query makes sense.
+    #     - Mostly answer yes looking if it is not satisfying conditions of no
+    #     - If it is asking very basic query or topic
+
+    #     Answer no if query:
+    #     - If query is invalid like if user typed anything which is senseless for eg: "bcjbsabfshds"
+    #     - If query is just hii, hello type of message
+
+    #     Query: {query}"""
+    #     # print(decision_prompt)
+    #     decision = self.llm.invoke([self.system_message, HumanMessage(content=decision_prompt)])
+    #     # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+    #     # print(decision.content.lower())
+    #     # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
+
+    #     return "yes" in decision.content.lower()
     def should_use_rag(self, query: str) -> bool:
-        QUESTION_PREFIXES = """[
-    "what actions are needed to",
-    "how is",
-    "what is",
-    "how will",
-    "what measures are in place for",
-    "how many",
-    "what steps are being taken to",
-    "how can",
-    "what challenges do",
-    "how often is",
-    "what are the",
-    "why are",
-    "what sectors are",
-    "how does"]"""
-        decision_prompt = f"""Determine if external information retrieval needed. Answer yes if query:
-        - Requires specific facts/data
-        - References recent events
-        - Needs domain-specific knowledge
-        - Requires citations/sources
-        - if query starts with any of those {QUESTION_PREFIXES} and query makes sense.
-
-
-        Answer no if query:
-        - Is general knowledge
-        - Asks for computation/reasoning
-        - Requests creative content
-        - Is conversational
-        - If query is invalid like if user typed anything which is senseless for eg: "bcjbsabfshds"
-        - If query is just hii, hello type of message
-
-        Query: {query}"""
-        # print(decision_prompt)
-        decision = self.llm.invoke([self.system_message, HumanMessage(content=decision_prompt)])
-        # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-        # print(decision.content.lower())
-        # print("@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@")
-
-        return "yes" in decision.content.lower()
-
+        # List of basic greetings to check against
+        BASIC_GREETINGS = [
+            "hi", "hello", "hey", "hii", "hiii", "hiiii", "helo", 
+            "morning", "good morning", "evening", "good evening",
+            "afternoon", "good afternoon", "sup", "yo", "hola",
+            "greetings", "namaste"
+        ]
+        
+        # Clean the query - remove extra spaces and convert to lowercase
+        cleaned_query = query.lower().strip()
+        
+        # Return False only for basic greetings, True for everything else
+        if cleaned_query in BASIC_GREETINGS:
+            return False
+        
+        return True
     def call_model(self, state: MessagesState) -> dict:
         messages = state['messages']
         last_message = messages[-1]
