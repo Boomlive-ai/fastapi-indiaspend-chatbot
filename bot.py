@@ -161,6 +161,7 @@ class Chatbot:
             context = f"Context: {sources}"
             prompt = (
             f"Answer the following question accurately and with data-backed insights in IndiaSpend's reporting style. "
+            f"Ensure the response includes relevant statistics, numerical comparisons, and trend analysis where applicable. "
             f"Ensure the response is clear, relevant, and does not mention or imply the existence of any supporting material or Context:\n\n"
             f"Question: {query}\n\n"
             f"Context: {context}"
