@@ -42,7 +42,8 @@ def generate_questions_batch(articles):
         3. Do not use bullet points or article numbers.
         4. Return only the questions (no introductory text or labels).
         5. Keep the questions under 60 characters each.
-        6. Return the questions in a shuffled order.
+        6. Should have a emoji related to question as prefix
+        7. Return the questions in a shuffled order.
         """)
 
 

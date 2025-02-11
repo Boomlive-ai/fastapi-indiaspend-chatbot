@@ -198,8 +198,8 @@ async def documentation():
         ]
     }
    
-# import uvicorn
+import uvicorn
 
-# if __name__ == "__main__":
-#     print("Starting FastAPI server...")
-#     uvicorn.run(app, host="192.168.1.149", port=5000, log_level="info")
+if __name__ == "__main__":
+    print("Starting FastAPI server...")
+    uvicorn.run(app, host="0.0.0.0", port=5000, log_level="info")
