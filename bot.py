@@ -78,6 +78,7 @@ class Chatbot:
                 "You should provide clear, well-structured answers and cite sources where applicable. "
                 "Website: [IndiaSpend](https://www.indiaspend.com/)."
                 "Ensure the response is clear, relevant, and does not mention or imply the existence of any supporting material or Context even if does not help in answering query"
+                f"Format: \n**Article Title Mentioned in Article Should be added dynalically:**\nYour summary here\n\n[Read more](Original article URL here)\n"
                 f"Note todays date is  {current_date}"
             )
         )
@@ -165,6 +166,7 @@ class Chatbot:
             f"Ensure the response is clear, relevant, and does not mention or imply the existence of any supporting material or Context:\n\n"
             f"Question: {query}\n\n"
             f"Context: {context}"
+            f"Format: \n**Article Title Mentioned in Article Should be added dynalically:**\nYour summary here\n\n[Read more](Original article URL here)\n"
             f"Note do not mention that you are using provided context and if context doesnt have anything related to query frame it as directly india spend bot is answering "
             )
 
