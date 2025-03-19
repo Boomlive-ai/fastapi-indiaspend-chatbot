@@ -30,12 +30,12 @@ class RAGTool:
         )
         self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
         self.retriever = self.vectorstore.as_retriever(
-            search_type="similarity",
-            search_kwargs={"k": 5}
+            search_type="mmr",
+            search_kwargs={"k": 10, "lambda_mult": 0.2, "fuzzy": True}
         )
         self.rag_chain = RetrievalQA.from_chain_type(
             llm=self.llm,
-            chain_type="stuff",
+            chain_type="map_reduce",
             retriever=self.retriever,
             return_source_documents=True  # Enable source document return
         )
@@ -135,7 +135,7 @@ class Chatbot:
             "hi", "hello", "hey", "hii", "hiii", "hiiii", "helo", 
             "morning", "good morning", "evening", "good evening",
             "afternoon", "good afternoon", "sup", "yo", "hola",
-            "greetings", "namaste"
+            "greetings", "namaste", "hyy", "hyyy"
         ]
         
         # Clean the query - remove extra spaces and convert to lowercase
@@ -157,7 +157,10 @@ class Chatbot:
             rag_result = self.rag_tool.retrieve(RAGQuery(query=query))
             # result_text = rag_result['result']
             sources = rag_result['sources']
-            
+            print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+            print(sources)
+            print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
+
             # Format response with context and sources
             context = f"Context: {sources}"
             prompt = (
