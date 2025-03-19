@@ -157,6 +157,7 @@ class Chatbot:
             rag_result = self.rag_tool.retrieve(RAGQuery(query=query))
             # result_text = rag_result['result']
             sources = rag_result['sources']
+            sources = sources[:7]
             print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
             print(sources)
             print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
