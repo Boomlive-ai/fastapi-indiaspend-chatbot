@@ -137,7 +137,7 @@ async def store_articles(data: ArticleRangeRequest):
         raise HTTPException(status_code=500, detail=f"Error in store_articles: {str(e)}")
 
 # Store daily articles
-@app.post("/store_daily_articles")
+@app.get("/store_daily_articles")
 async def store_daily_articles():
     try:
         store_articles_handler = StoreDailyArticles()
