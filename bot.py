@@ -31,7 +31,7 @@ class RAGTool:
         self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
         self.retriever = self.vectorstore.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 10, "lambda_mult": 0.2, "fuzzy": True}
+            search_kwargs={"k": 20, "lambda_mult": 0.5, "fuzzy": True}
         )
         self.rag_chain = RetrievalQA.from_chain_type(
             llm=self.llm,
