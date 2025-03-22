@@ -2,6 +2,14 @@ import re, json
 from langchain_core.messages import HumanMessage
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+# Import necessary libraries
+import nltk
+
+# Download the 'punkt' tokenizer resource
+nltk.download('punkt')
+
+# Your other imports and code follow
+from nltk.tokenize import word_tokenize
 
 
 def extract_sources_and_result(result: str):
@@ -379,3 +387,230 @@ async def add_urls_to_database(urls):
             return f"There are no urls to add"
     except requests.RequestException as e:
         return f"An error occurred while adding URLs: {e}"
+    
+
+#######################################################################Developers FUcntionss####################################################################################
+async def process_and_upload_single_url(url, index_name="india-spend"):
+    """
+    Process a single URL: fetch content, convert to document, preprocess, and upload to Pinecone.
+    
+    Args:
+        url (str): The URL of the article to process and upload
+        index_name (str): Name of the Pinecone index to use (default: "india-spend")
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        print(f"Processing URL: {url}")
+        
+        # 1. Fetch content from the URL
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        
+        # Check if it's HTML content
+        if 'text/html' not in response.headers.get('Content-Type', ''):
+            print(f"Skipped non-HTML content at {url}")
+            return False
+            
+        # 2. Extract text using BeautifulSoup
+        soup = BeautifulSoup(response.content, 'html.parser')
+        text = ' '.join([p.get_text() for p in soup.find_all(['p', 'h1', 'h2', 'h3'])])
+        
+        # 3. Create document
+        document = Document(page_content=text, metadata={"source": url})
+        
+        # 4. Split into chunks
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+        doc_chunks = text_splitter.split_documents([document])
+        
+        # 5. Preprocess document chunks
+        preprocessed_docs = await preprocess_documents(doc_chunks)
+        
+        # 6. Upload to Pinecone
+        embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+        print(f"Storing {len(preprocessed_docs)} document chunks to Pinecone index '{index_name}'...")
+        
+        pine_vs = Pinecone.from_documents(
+            documents=preprocessed_docs, 
+            embedding=embeddings, 
+            index_name=index_name
+        )
+        
+        # 7. Add URL to database
+        await add_urls_to_database(json.dumps([url]))
+        
+        print(f"Successfully processed and uploaded content from {url}")
+        return True
+        
+    except Exception as e:
+        print(f"Error processing URL {url}: {str(e)}")
+        return False
+
+
+
+def preprocess_query(query_text):
+    """
+    Preprocess a query string using the same steps as document preprocessing.
+    
+    Args:
+        query_text (str): The raw query text
+        
+    Returns:
+        str: Preprocessed query text
+    """
+    # Download required NLTK packages if not already downloaded
+    try:
+        # Make sure to download these resources first
+        
+        nltk.download('punkt')
+        nltk.download('punkt_tab')  # though this might not exist as a standard resource
+        nltk.download('stopwords')
+        nltk.download('wordnet')
+    except Exception as e:
+        print(f"Error downloading NLTK resources: {str(e)}")
+    
+    # Initialize lemmatizer and stopwords
+    lemmatizer = WordNetLemmatizer()
+    stop_words = set(stopwords.words('english'))
+    
+    # 1. Basic cleaning
+    # Remove URLs
+    query_text = re.sub(r'https?://\S+|www\.\S+', '', query_text)
+    # Remove HTML tags
+    query_text = re.sub(r'<.*?>', '', query_text)
+    # Remove special characters and numbers
+    query_text = re.sub(r'[^a-zA-Z\s]', '', query_text)
+    # Normalize whitespace
+    query_text = ' '.join(query_text.split())
+    
+    # 2. Tokenize the text
+    tokens = word_tokenize(query_text.lower())
+    
+    # 3. Remove stopwords and lemmatize
+    filtered_tokens = []
+    for token in tokens:
+        if token not in stop_words:
+            # Lemmatize the token
+            lemmatized = lemmatizer.lemmatize(token)
+            filtered_tokens.append(lemmatized)
+    
+    # 4. Reconstruct the text
+    processed_query = ' '.join(filtered_tokens)
+    
+    return processed_query
+
+async def query_pinecone(query_text, index_name="india-spend", top_k=5):
+    """
+    Query the Pinecone index with preprocessing.
+    
+    Args:
+        query_text (str): The raw query text
+        index_name (str): Name of the Pinecone index to use
+        top_k (int): Number of results to return
+        
+    Returns:
+        list: List of document results from Pinecone
+    """
+
+
+    # Preprocess the query
+    processed_query = preprocess_query(query_text)
+    
+    # Generate embeddings using the same model as for documents
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    
+    # Connect to Pinecone
+    pine = Pinecone.from_existing_index(index_name=index_name, embedding=embeddings)
+    
+    # Query the index
+    results = pine.similarity_search(processed_query, k=top_k)
+    
+    return results
+
+
+#######################################################################Developers FUcntionss####################################################################################
+
+####################################################################### Preprocessing the DOCUMENTS ###################################################
+
+
+
+import re
+import nltk
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+from nltk.tokenize import word_tokenize
+
+async def preprocess_documents(docs):
+    """
+    Comprehensive preprocessing of documents before storing them in Pinecone.
+    
+    Steps include:
+    - Text cleaning (whitespace normalization, special character removal)
+    - Stopword removal
+    - Lemmatization (converting words to their base form)
+    - Additional metadata
+    
+    Args:
+        docs (list): List of Document objects to preprocess
+        
+    Returns:
+        list: List of preprocessed Document objects
+    """
+    # Download required NLTK packages if not already downloaded
+    try:
+        nltk.data.find('tokenizers/punkt')
+        nltk.data.find('corpora/stopwords')
+        nltk.data.find('corpora/wordnet')
+    except LookupError:
+        nltk.download('punkt')
+        nltk.download('stopwords')
+        nltk.download('wordnet')
+    
+    # Initialize lemmatizer and stopwords
+    lemmatizer = WordNetLemmatizer()
+    stop_words = set(stopwords.words('english'))
+    
+    preprocessed_docs = []
+    
+    for doc in docs:
+        # Extract content from the document
+        content = doc.page_content
+        metadata = doc.metadata.copy()  # Create a copy to avoid modifying the original
+        
+        # 1. Basic cleaning
+        # Remove URLs
+        content = re.sub(r'https?://\S+|www\.\S+', '', content)
+        # Remove HTML tags
+        content = re.sub(r'<.*?>', '', content)
+        # Remove special characters and numbers (keep spaces and word characters)
+        content = re.sub(r'[^a-zA-Z\s]', '', content)
+        # Normalize whitespace
+        content = ' '.join(content.split())
+        
+        # 2. Tokenize the text
+        tokens = word_tokenize(content.lower())
+        
+        # 3. Remove stopwords and lemmatize
+        filtered_tokens = []
+        for token in tokens:
+            if token not in stop_words:
+                # Lemmatize the token (e.g., "richest" -> "rich")
+                lemmatized = lemmatizer.lemmatize(token)
+                filtered_tokens.append(lemmatized)
+        
+        # 4. Reconstruct the text
+        processed_content = ' '.join(filtered_tokens)
+        
+        # 5. Add preprocessing metadata
+        metadata["preprocessed"] = True
+        metadata["processed_date"] = datetime.datetime.now().isoformat()
+        metadata["original_length"] = len(content)
+        metadata["processed_length"] = len(processed_content)
+        
+        # Create a new document with the preprocessed content
+        preprocessed_doc = Document(page_content=processed_content, metadata=metadata)
+        preprocessed_docs.append(preprocessed_doc)
+    
+    print(f"Preprocessed {len(preprocessed_docs)} document chunks (removed stopwords, applied lemmatization)")
+    return preprocessed_docs

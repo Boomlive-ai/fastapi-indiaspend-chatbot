@@ -11,6 +11,7 @@ from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from dotenv import load_dotenv
+from utils import preprocess_query
 load_dotenv()
 from datetime import datetime
 
@@ -153,11 +154,13 @@ class Chatbot:
         sources = []
         should_use_rag = self.should_use_rag(query)
         if should_use_rag:
+             # Preprocess the query
+            processed_query = preprocess_query(query)
             # print(f"Triggering RAG tool for query: {query}")
-            rag_result = self.rag_tool.retrieve(RAGQuery(query=query))
+            rag_result = self.rag_tool.retrieve(RAGQuery(query=processed_query))
             # result_text = rag_result['result']
             sources = rag_result['sources']
-            sources = sources[:7]
+            sources = sources[:5]
             print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
             print(sources)
             print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")

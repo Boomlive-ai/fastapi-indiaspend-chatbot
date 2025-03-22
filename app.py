@@ -197,9 +197,61 @@ async def documentation():
             },
         ]
     }
-   
-# import uvicorn
 
-# if __name__ == "__main__":
-#     print("Starting FastAPI server...")
-#     uvicorn.run(app, host="192.168.1.149", port=5000, log_level="info")
+
+
+
+###########################################################################DEVELOPERS ROUTES#############################################################################
+from typing import List, Optional
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
+from utils import process_and_upload_single_url, query_pinecone
+class UrlItem(BaseModel):
+    url: str
+
+class QueryItem(BaseModel):
+    query: str
+    top_k: Optional[int] = 5
+
+class ProcessResponse(BaseModel):
+    success: bool
+    message: str
+
+# Route for processing a single URL
+@app.post("/process-url", response_model=ProcessResponse)
+async def process_url(url_item: UrlItem, background_tasks: BackgroundTasks):
+    """
+    Process and upload a single URL to the Pinecone index
+    """
+    try:
+        # Add the task to background tasks to not block the response
+        background_tasks.add_task(process_and_upload_single_url, url_item.url)
+        return {"success": True, "message": f"URL processing started for: {url_item.url}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing URL: {str(e)}")
+
+# Route for querying the Pinecone index
+@app.post("/query_pinecone")
+async def query_index(query_item: QueryItem):
+    """
+    Query the Pinecone index with the given query text
+    """
+    try:
+        results = await query_pinecone(query_item.query, top_k=query_item.top_k)
+        # Format results for response
+        formatted_results = []
+        for doc in results:
+            formatted_results.append({
+                "source": doc.metadata.get("source", "Unknown"),
+                "content": doc.page_content,
+                "metadata": doc.metadata
+            })
+        return {"success": True, "results": formatted_results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error querying index: {str(e)}")
+   ###########################################################################DEVELOPERS ROUTES#############################################################################
+
+import uvicorn
+
+if __name__ == "__main__":
+    print("Starting FastAPI server...")
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")

@@ -70,6 +70,8 @@ def generate_questions_batch(articles):
         print(f"Error generating questions: {e}")
         return []
 
+
+
 def fetch_questions_on_latest_articles_in_IndiaSpend():
     """
     Fetches the latest articles from the IndiaSpend API and generates up to 20
