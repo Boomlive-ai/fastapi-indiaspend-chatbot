@@ -338,7 +338,9 @@ async def fetch_docs_custom_range(urls):
             continue
 
     docs = text_splitter.split_documents(data)
-    return docs
+    preprocessed_docs = await preprocess_documents(docs)
+
+    return preprocessed_docs
 
 
 async def store_docs_in_pinecone(docs, index_name, urls):
