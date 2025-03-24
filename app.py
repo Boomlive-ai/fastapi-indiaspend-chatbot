@@ -7,7 +7,7 @@ from bot import Chatbot
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessageChunk
 from utils import extract_sources_and_result, prioritize_sources
-from tools import fetch_questions_on_latest_articles_in_IndiaSpend
+from tools import fetch_questions_on_latest_articles_in_IndiaSpend, extract_links, generate_questions_for_articles
 from vectorstore import StoreCustomRangeArticles, StoreDailyArticles
 from fastapi import FastAPI, HTTPException
 
@@ -248,10 +248,68 @@ async def query_index(query_item: QueryItem):
         return {"success": True, "results": formatted_results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error querying index: {str(e)}")
+    
+class LinkExtractorResponse(BaseModel):
+    links: List[str]
+    count: int
+    url: str
+
+# Add this route to your FastAPI app
+@app.get("/extract_links", response_model=LinkExtractorResponse)
+async def get_extract_links(url_or_path: str):
+    """
+    Extract article links from an IndiaSend webpage.
+    
+    Parameters:
+    - url_or_path: Either a full URL (https://www.indiaspend.com/earthcheckindia) 
+                  or just the path segment (earthcheckindia)
+    
+    Returns:
+    - List of article URLs extracted from the page
+    - Count of extracted links
+    - Full URL that was processed
+    """
+    try:
+        links, full_url = extract_links(url_or_path)
+        return {
+            "links": links,
+            "count": len(links),
+            "url": full_url
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error extracting links: {str(e)}")
+
    ###########################################################################DEVELOPERS ROUTES#############################################################################
 
+
+# FastAPI Route for extracting links and generating questions
+@app.get("/generate_tags_questions", response_model=dict)
+async def extract_and_generate(url_or_path: str):
+    """
+    Extracts links from a webpage and generates relevant questions.
+    
+    Parameters:
+    - url_or_path: Either a full URL (https://www.indiaspend.com/earthcheckindia) 
+                   or just the path segment (earthcheckindia)
+    
+    Returns:
+    - List of extracted article links
+    - List of generated questions
+    - Count of extracted links
+    - Full processed URL
+    """
+    try:
+        result = generate_questions_for_articles(url_or_path)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
+    
+
+    
 import uvicorn
 
 if __name__ == "__main__":
     print("Starting FastAPI server...")
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+
+

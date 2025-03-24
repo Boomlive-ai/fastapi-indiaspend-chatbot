@@ -108,3 +108,90 @@ def fetch_questions_on_latest_articles_in_IndiaSpend():
 
     # Ensure only 20 questions are returned
     return {"questions": questions[:20]}
+
+
+
+
+import requests
+from bs4 import BeautifulSoup
+import re
+def extract_links(url_or_path):
+    """
+    Extract href links from IndiaSend website given a URL or path.
+    
+    Returns:
+    tuple: (list of article URLs, full URL processed)
+    """
+    base_url = "https://www.indiaspend.com"
+    
+    if not url_or_path.startswith("http"):
+        if url_or_path.startswith("/"):
+            url_or_path = url_or_path[1:]
+        full_url = f"{base_url}/{url_or_path}"
+    else:
+        full_url = url_or_path
+    
+    try:
+        response = requests.get(full_url)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        article_links = []
+
+        for article in soup.find_all('article'):
+            title_element = article.find('h3', class_='alith_post_title')
+            if title_element and title_element.find('a'):
+                href = title_element.find('a')['href']
+                if href.startswith('http'):
+                    if 'indiaspend.com' not in href:
+                        continue
+                    article_links.append(href)
+                else:
+                    if href.startswith('/'):
+                        article_links.append(f"{base_url}{href}")
+                    else:
+                        article_links.append(f"{base_url}/{href}")
+        
+        return article_links, full_url  # ✅ Now returning a tuple
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching the URL: {e}")
+        return [], full_url  # ✅ Return empty list and full_url in case of error
+    except Exception as e:
+        print(f"Error parsing the HTML: {e}")
+        return [], full_url
+
+
+# Function to generate questions from extracted links
+def generate_questions_for_articles(url_or_path):
+    links, full_url = extract_links(url_or_path)
+
+    if not links:
+        return {
+            "links": [],
+            "questions": [],
+            "count": 0,
+            "url": full_url
+        }
+    
+    # Simulating fetching article content (you need real API calls or scraping here)
+    articles = []
+    for link in links:
+        # Dummy data, replace with actual content fetching logic
+        articles.append({
+            "heading": f"Article from {link}",
+            "description": "This is a brief description of the article.",
+            "story": "This is a placeholder for the article's main content.",
+            "url": link
+        })
+    
+    # Generate questions based on articles
+    questions = generate_questions_batch(articles)
+
+    return {
+        "links": links,
+        "questions": questions,
+        "count": len(links),
+        "url": full_url
+    }
+
