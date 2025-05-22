@@ -1,4 +1,4 @@
-import re, json
+import re, json, os
 from langchain_core.messages import HumanMessage
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -169,7 +169,7 @@ async def store_daily_articles():
         api_url = f'https://indiaspend.com/dev/h-api/news'
         headers = {
             "accept": "*/*",
-            "s-id": "yP4PEm9PqCPxxiMuHDyYz0PIjAHxHbYpTQi9E4AtNk0R4bp9Lsf0hyN4AEKKiM9I"
+            "s-id": os.getenv("INDIA_SPEND_S_ID")
         }
         print(f"Current API URL: {api_url}")
 
@@ -239,7 +239,7 @@ async def store_articles_custom_range(from_date: str = None, to_date: str = None
         api_url = f'https://indiaspend.com/dev/h-api/news?startIndex={start_index}&count={count}&fromDate={from_date}&toDate={to_date}'
         headers = {
             "accept": "*/*",
-            "s-id": "yP4PEm9PqCPxxiMuHDyYz0PIjAHxHbYpTQi9E4AtNk0R4bp9Lsf0hyN4AEKKiM9I"
+            "s-id": os.getenv("INDIA_SPEND_S_ID")
         }
         print(f"Current API URL: {api_url}")
 
@@ -298,7 +298,7 @@ async def filter_urls_custom_range(urls):
     api_url = f"https://exceltohtml.indiaspend.com/chatbotDB/not_in_table.php?urls={urls}"
     headers = {
         "accept": "*/*",
-        "Authorization": "adityaboom_requesting2024#",
+        "Authorization": os.getenv("AUTHORIZATION_TOKEN"),
         "Content-Type": "application/json"
     }
     try:
@@ -367,7 +367,7 @@ async def add_urls_to_database(urls):
     api_url = f"https://exceltohtml.indiaspend.com/chatbotDB/add_in_table.php?urls={urls}"
     headers = {
         "accept": "*/*",
-        "Authorization": "adityaboom_requesting2024#",
+        "Authorization": os.getenv("AUTHORIZATION_TOKEN"),
         "Content-Type": "application/json"
     }
     

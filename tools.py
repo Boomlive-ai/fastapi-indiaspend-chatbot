@@ -1,4 +1,4 @@
-import re
+import re,os
 import requests
 from langchain_community.chat_models import ChatOpenAI
 from langchain_core.messages import HumanMessage
@@ -83,7 +83,7 @@ def fetch_questions_on_latest_articles_in_IndiaSpend():
     api_url = 'https://indiaspend.com/dev/h-api/news'
     headers = {
         "accept": "*/*",
-        "s-id": "yP4PEm9PqCPxxiMuHDyYz0PIjAHxHbYpTQi9E4AtNk0R4bp9Lsf0hyN4AEKKiM9I"
+        "s-id": os.getenv("INDIA_SPEND_S_ID")
     }
     print(f"Fetching articles from API: {api_url}")
 
