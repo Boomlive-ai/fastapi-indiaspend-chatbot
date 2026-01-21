@@ -67,7 +67,7 @@ RUN useradd -m appuser && chown -R appuser /app
 USER appuser
 
 # Expose the FastAPI app's default port
-EXPOSE 8000
+EXPOSE 8001
 
 # Command to run the FastAPI app using Gunicorn with Uvicorn worker
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "4"]
