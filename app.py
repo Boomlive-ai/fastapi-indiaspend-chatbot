@@ -281,6 +281,12 @@ async def get_extract_links(url_or_path: str):
 
    ###########################################################################DEVELOPERS ROUTES#############################################################################
 
+class ClarifyQueryRequest(BaseModel):
+    query: str
+
+class ClarifyQueryResponse(BaseModel):
+    clarifications: list[str]
+
 
 # FastAPI Route for extracting links and generating questions
 @app.get("/generate_tags_questions", response_model=dict)
@@ -304,6 +310,14 @@ async def extract_and_generate(url_or_path: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
     
+@app.post("/clarify_query", response_model=ClarifyQueryResponse)
+async def clarify_query(data: ClarifyQueryRequest):
+    try:
+        clarifications = mybot.generate_clarifying_questions(data.query)
+        return {"clarifications": clarifications}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
     
 import uvicorn
