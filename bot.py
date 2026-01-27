@@ -92,6 +92,8 @@ class Chatbot:
             args_schema=RAGQuery
         )
         self.tool_node = ToolNode(tools=[rag_tool])
+        
+    
 
     # def should_use_rag(self, query: str) -> bool:
     #     QUESTION_PREFIXES = """[
@@ -167,22 +169,71 @@ class Chatbot:
 
             # Format response with context and sources
             context = f"Context: {sources}"
-            prompt = (
-            f"Answer the following question accurately and with data-backed insights in IndiaSpend's reporting style. "
-            f"Ensure the response includes relevant statistics, numerical comparisons, and trend analysis where applicable. "
-            f"Ensure the response is clear, relevant, and does not mention or imply the existence of any supporting material or Context:\n\n"
-            f"Question: {query}\n\n"
-            f"Context: {context}"
-            f"Format: \n**Article Title Mentioned in Article Should be added dynalically:**\nYour summary here\n\n[Read more](Original article URL here)\n"
-            f"Note do not mention that you are using provided context and if context doesnt have anything related to query frame it as directly india spend bot is answering "
-            )
+            # prompt = (
+            # f"Answer the following question accurately and with data-backed insights in IndiaSpend's reporting style. "
+            # f"Ensure the response includes relevant statistics, numerical comparisons, and trend analysis where applicable. "
+            # f"Ensure the response is clear, relevant, and does not mention or imply the existence of any supporting material or Context:\n\n"
+            # f"Question: {query}\n\n"
+            # f"Context: {context}"
+            # f"Format: \n**Article Title Mentioned in Article Should be added dynalically:**\nYour summary here\n\n[Read more](Original article URL here)\n"
+            # f"Note do not mention that you are using provided context and if context doesnt have anything related to query frame it as directly india spend bot is answering "
+            # )
+            
+            prompt = f"""
+                You are IndiaSpend AI.
+
+                Answer the question below in a clean, reader-friendly format.
+                DO NOT use section headings or labels.
+
+                Question:
+                {query}
+
+                Context (internal use only):
+                {sources}
+
+                RESPONSE RULES (STRICT):
+                - Start with a short paragraph of 2–3 sentences summarising the answer, Bold as many important words as needed to improve clarity and emphasis, but do not overuse.
+                - After the paragraph, list 3–5 bullet points only.
+                - Bullet points must:
+                    - start with "•"
+                    - be sorted by importance
+                    - include numbers or data where possible
+                - Do NOT write labels like "Short Summary", "Key Points", or similar.
+                - Do NOT mention context, sources, or retrieval.
+                - Maintain a factual, journalistic tone.
+                
+                ALLOWED FORMATTING:                
+                - Use "**bold**" to highlight:
+                    **numbers and statistics**
+                    **years and timelines**
+                    **key outcomes or results**
+                    **policy names or programs**
+                    **important names (people, organizations, places)**
+                    **critical terms or concepts**
+                    **major actions or decisions**
+                    **trends or comparisons**
+                - Bold as many important words as needed to improve clarity and emphasis.
+                - Use "•" for bullet points
+                
+                
+                STRICT OUTPUT RULES:
+                - Do NOT use square brackets [ ] or parentheses ( ).
+                - Do NOT include any URLs or links.
+                - Do NOT mention sources, references, or context.
+                - Do NOT use headings or labels.
+
+                End with:
+                [Read more](Original article URL here)\n"
+                """
+
+
 
 
 
             response = self.llm.invoke([self.system_message, HumanMessage(content=prompt)])
-            # print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
-            # print(response.content)
-            # print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+            print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+            print(response.content)
+            print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
 
             formatted_response = f"{response.content}\n\nSources:\n" + "\n".join(sources)
             return {"messages": [AIMessage(content=formatted_response)], "sources":sources}
@@ -200,7 +251,48 @@ class Chatbot:
         messages = state['messages']
         last_message = messages[-1]
         return "tools" if getattr(last_message, 'tool_calls', None) else END
+    
+    def generate_clarifying_questions(self, query: str) -> list[str]:
+            prompt = f"""
+        You are IndiaSpend AI.
 
+        The user has asked a broad or ambiguous question.
+        Your task is to ask follow-up questions that help narrow the scope
+        by staying CLOSE to the topic of the original question.
+
+        IMPORTANT:
+        - Questions must be directly related to the subject of the query.
+        - Ask like a journalist clarifying an interview question.
+        - Avoid generic questions like "what topic" or "which sector".
+        - Make the questions sound natural and human.
+
+        RULES (STRICT):
+        - Generate 1 to 3 clarification questions only.
+        - Each question must help narrow:
+        • geography (national vs state vs city)
+        • scope (public vs private, policy vs impact, causes vs effects)
+        • timeframe (recent vs long-term), if relevant
+        - Do NOT answer the original question.
+        - Do NOT explain why you are asking.
+        - Do NOT use bullet points or numbering.
+        - Each question must be a single sentence.
+        - Keep language simple and conversational.
+
+        User question:
+        {query}
+
+        Return only the questions, each on a new line.
+        """
+
+            response = self.llm.invoke([HumanMessage(content=prompt)])
+
+            questions = [
+                line.strip()
+                for line in response.content.split("\n")
+                if line.strip()
+            ]
+
+            return questions[:3]
     def __call__(self):
         self.setup_tools()
         workflow = StateGraph(MessagesState)
