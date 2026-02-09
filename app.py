@@ -70,7 +70,13 @@ async def stream_query_bot(question: str, thread_id: str):
                         )  # Print the extracted sources
                        
 
-                if event["event"] == "on_chat_model_stream":
+                # if event["event"] == "on_chat_model_stream":
+                if (
+                        event["event"] == "on_chat_model_stream"
+                        and event["name"] == "ChatOpenAI"
+                        and "final" in event["tags"]
+                    ):
+
                     chunk = event["data"]["chunk"]
                     # print(chunk.content, end="|", flush=True)
                     if isinstance(chunk, AIMessageChunk):
@@ -107,6 +113,84 @@ async def stream_query_bot(question: str, thread_id: str):
             "Connection": "keep-alive",
         }
     )
+
+# @app.get("/stream_query")
+# async def stream_query_bot(question: str, thread_id: str):
+#     if not question or not thread_id:
+#         raise HTTPException(status_code=400, detail="Missing required parameters.")
+    
+#     input_data = {"messages": [HumanMessage(content=question)]}
+
+#     async def stream_chunks():
+#         sources = []
+#         full_content = ""  # Accumulate full response
+        
+#         try:
+#             async for event in workflow.astream_events(input_data, config={"configurable": {"thread_id": thread_id}}, version="v2"):
+
+#                 if event["event"]=="on_retriever_end":
+#                     output = event["data"].get("output", [])
+#                     if isinstance(output, list):
+#                         sources.extend(
+#                             [doc.metadata.get("source") for doc in output if doc.metadata.get("source")]
+#                         )
+
+#                 if event["event"] == "on_chat_model_stream":
+#                     chunk = event["data"]["chunk"]
+#                     if isinstance(chunk, AIMessageChunk):
+#                         match = re.search(r"content='([^']+)'", str(chunk))
+#                         if match:
+#                             content = match.group(1)
+#                             full_content += content  # Accumulate
+#                             # Don't yield yet - we'll process at the end
+#                     else:
+#                         yield "data: Invalid chunk type\n\n"
+                        
+#         except Exception as e:
+#             yield f"data: Error in query_bot: {str(e)}\n\n"
+#         finally:
+#             if sources:
+#                 sources = prioritize_sources(question, sources)
+#                 main_source = sources[0] if sources else None
+                
+#                 print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+#                 print("QUESTION", question)
+#                 print("SOURCES", sources)
+#                 print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+                
+#                 # Convert **text** to **[text](url)** before streaming
+#                 if main_source:
+#                     # Replace **word** with **[word](main_source)**
+#                     processed_content = re.sub(
+#                         r'\*\*([^*]+)\*\*',
+#                         f'**[\\1]({main_source})**',
+#                         full_content
+#                     )
+#                 else:
+#                     processed_content = full_content
+                
+#                 # Now stream the processed content character by character
+#                 for char in processed_content:
+#                     yield f"data: {char}\n\n"
+                
+#                 # Send sources
+#                 yield f"data: {json.dumps({'sources': sources, 'main_source': main_source})}\n\n"
+#             else:
+#                 # No sources, just stream original content
+#                 for char in full_content:
+#                     yield f"data: {char}\n\n"
+                    
+#             yield "data: [end]\n\n"
+
+#     return StreamingResponse(
+#         stream_chunks(),
+#         media_type="text/event-stream",
+#         headers={
+#             "Cache-Control": "no-cache",
+#             "Connection": "keep-alive",
+#         }
+#     )
+
 
 
 @app.get("/query")
@@ -317,6 +401,12 @@ async def clarify_query(data: ClarifyQueryRequest):
         return {"clarifications": clarifications}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+from functools import lru_cache
+
+@lru_cache(maxsize=2000)
+def clarify_cached(query):
+    return mybot.generate_clarifying_questions(query)
 
 
     

@@ -29,7 +29,7 @@ class RAGTool:
             index_name=self.index_name,
             embedding=self.embeddings
         )
-        self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
+        self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0, streaming=False)
         self.retriever = self.vectorstore.as_retriever(
             search_type="mmr",
             search_kwargs={"k": 20, "lambda_mult": 0.5, "fuzzy": True}
@@ -40,31 +40,331 @@ class RAGTool:
             retriever=self.retriever,
             return_source_documents=True  # Enable source document return
         )
+        
+    def rerank_documents(self, docs, query):
+        query_terms = query.lower().split()
 
-    def retrieve(self, query: RAGQuery) -> dict:
-        # print(f"Retrieving for query: {query.query}")
-        similar_docs = self.retriever.get_relevant_documents(query.query)
-        source_links = [doc.metadata.get('source', 'No source') for doc in similar_docs]
+        ranked = []
+        for doc in docs:
+            score = 0
+            content = doc.page_content.lower()
+            print("Reranking Doc Content:", content[:100])  # Print first 100 chars
+            title = doc.metadata.get("title", "").lower()
+            print("Reranking Doc Title:", title)
+
+            for term in query_terms:
+                if term in title:
+                    score += 3     # Title match = strong signal
+                    print(f"Title match for term '{term}',title: {title}, score now {score}")
+                if term in content:
+                    score += 1     # Content match = weaker signal
+                    print(f"Content match for term '{term}', score now {score}")
+
+            ranked.append((score, doc))
+
+        # Sort by score (descending)
+        ranked.sort(key=lambda x: x[0], reverse=True)
+
+        # Keep only docs with score > 0
+        return [doc for score, doc in ranked if score > 0]
+
+
+    # def retrieve(self, query: RAGQuery) -> dict:
+    #     # print(f"Retrieving for query: {query.query}")
+    #     similar_docs = self.retriever.get_relevant_documents(query.query)
+    #     print("query", query)
+    #     source_links = [doc.metadata.get('source', 'No source') for doc in similar_docs]
+    #     print("metadata", source_links)
         
-        # result = self.rag_chain.invoke(query.query + "Note do not mention anything about the provided context")
-        # if isinstance(result, dict):
-        #     response_result = result.get('result', str(result))
-        #     source_documents = result.get('source_documents', [])
-        #     source_links.extend([doc.metadata.get('source', 'No source') for doc in source_documents])
-        # else:
-        #     response_result = str(result)
+    #     # result = self.rag_chain.invoke(query.query + "Note do not mention anything about the provided context")
+    #     # if isinstance(result, dict):
+    #     #     response_result = result.get('result', str(result))
+    #     #     source_documents = result.get('source_documents', [])
+    #     #     source_links.extend([doc.metadata.get('source', 'No source') for doc in source_documents])
+    #     # else:
+    #     #     response_result = str(result)
             
-        # Remove duplicates while preserving order
-        source_links = list(dict.fromkeys(source_links))
+    #     # Remove duplicates while preserving order
+    #     source_links = list(dict.fromkeys(source_links))
         
+    #     return {
+    #         # "result": response_result,
+    #         "sources": source_links
+    #     }
+    
+    def retrieve(self, query: RAGQuery) -> dict:
+        # Step 1: Initial semantic retrieval
+        similar_docs = self.retriever.get_relevant_documents(query.query)
+
+        # Step 2: Re-rank documents for accuracy
+        reranked_docs = self.rerank_documents(similar_docs, query.query)
+
+        # Step 3: Extract sources from reranked docs
+        source_links = [
+            doc.metadata.get("source", "No source")
+            for doc in reranked_docs
+        ]
+
+        # Step 4: Remove duplicates, preserve order
+        source_links = list(dict.fromkeys(source_links))
+        print("Reranked Sources:", source_links)    
+
         return {
-            # "result": response_result,
             "sources": source_links
         }
+        
+    def retrieve_chunk_for_bold_phrase(self, phrase: str, k=3):
+        """
+        Semantic retrieval for a bold phrase to find
+        the most relevant document chunk.
+        """
+        results = self.vectorstore.similarity_search_with_score(
+            phrase,
+            k=k
+        )
+
+        # lower score = better similarity in Pinecone
+        best_doc, best_score = results[0]
+
+        return best_doc, best_score
+
+    def extract_context_window(self, doc, phrase, window=40):
+        """
+        Returns a small context window around the phrase.
+        """
+        content = doc.page_content
+        content_lower = content.lower()
+        phrase_lower = phrase.lower()
+
+        idx = content_lower.find(phrase_lower)
+        if idx == -1:
+            return content[:300]  # fallback
+
+        start = max(0, idx - window * 5)
+        end = min(len(content), idx + len(phrase) + window * 5)
+
+        return content[start:end].strip()
+
+    def map_bold_phrases_to_sources(self, bold_phrases, confidence_threshold=0.50):
+        print("Mapping bold phrases to sources with threshold:", confidence_threshold)
+        mappings = {}
+
+        for phrase in bold_phrases:
+            doc, score = self.retrieve_chunk_for_bold_phrase(phrase)
+            print("PHRASE:", phrase)
+            print("RAW SCORE:", score)
+
+            # # Pinecone similarity score: lower is better
+            # similarity = 1 - score  
+
+            # if similarity < confidence_threshold:
+            #     continue
+            
+            # # ✅ Keep only strong semantic matches
+            # if score <= 0.50:
+            #     continue
+            
+            if score < confidence_threshold:  # default threshold = 0.60
+                print(f"⚠️ Score {score} below threshold {confidence_threshold}, skipping")
+                continue
+
+            context = self.extract_context_window(doc, phrase)
+
+            mappings[phrase] = {
+                "source": doc.metadata.get("source"),
+                "confidence": round(score, 2),
+                "context": context
+            }
+            print(f"Mapped '{phrase}' to {doc.metadata.get('source')} with confidence {round(score, 2)}")
+            
+
+
+        return mappings
+
+        
+import re
+
+# def extract_bold_words(text: str) -> list:
+#     """Extract all unique bold words from markdown text."""
+#     bold_pattern = r'\*\*(.*?)\*\*'
+#     bold_matches = re.findall(bold_pattern, text)
+    
+#     # Deduplicate while preserving order
+#     seen = set()
+#     unique_bold = []
+#     for word in bold_matches:
+#         clean_word = word.strip()
+#         if clean_word and clean_word not in seen:
+#             seen.add(clean_word)
+#             unique_bold.append(clean_word)
+    
+#     return unique_bold
+
+def attach_sources_to_bold_text(response_text: str, bold_source_map: dict) -> str:
+    """
+    Attaches source links below bold phrases if available.
+    """
+    updated_text = response_text
+
+    for phrase, data in bold_source_map.items():
+        source = data.get("source")
+        if not source:
+            continue
+
+        bold_phrase = f"**{phrase}**"
+        linked_phrase = f"**[{phrase}]({source})**"
+        # linked_phrase = f"**[{phrase}]**({source})"
+
+
+        # Avoid double-linking
+        if linked_phrase in updated_text:
+            continue
+
+        updated_text = updated_text.replace(bold_phrase, linked_phrase, 1)
+
+    return updated_text
+
+def extract_bold_words(text: str) -> list:
+    import re
+    bold_pattern = r'\*\*(.*?)\*\*'
+    matches = re.findall(bold_pattern, text)
+
+    cleaned = []
+    for m in matches:
+        word = m.strip()
+
+        # ❌ skip long sentences
+        if len(word.split()) > 6:
+            continue
+
+        # ❌ skip punctuation-heavy strings
+        if len(word) > 60:
+            continue
+
+        cleaned.append(word)
+
+    return list(dict.fromkeys(cleaned))
+
+
+# def map_bold_words_to_sources_with_threshold(
+#     bold_words,
+#     documents,
+#     threshold=80
+# ):
+#     word_link_map = {}
+
+#     for word in bold_words:
+#         word_lower = word.lower().strip()
+#         best_doc = None
+#         best_score = 0
+#         max_possible_score = 0
+#         print(f"\n🔎 Trying to map bold word: '{word}'")
+
+#         for doc in documents:
+#             title = doc.metadata.get("title", "").lower()
+#             content = doc.page_content.lower()
+#             print("Mapping Doc Content:", content[:100])  # Print first 100 chars
+
+#             score = 0
+#             possible = 0
+
+#             # Title match (strong signal)
+#             possible += 3
+#             if word_lower in title:
+#                 score += 3
+
+#             # Content match (weaker signal)
+#             possible += 2
+#             if word_lower in content:
+#                 score += 2
+
+#             # Normalize to percentage
+#             confidence = int((score / possible) * 100) if possible else 0
+
+#             if confidence > best_score:
+#                 best_score = confidence
+#                 best_doc = doc
+
+#         # Apply threshold
+#         if best_doc and best_score >= threshold:
+#             word_link_map[word] = {
+#                 "link": best_doc.metadata.get("source"),
+#                 "confidence": best_score
+#             }
+#             print(f"Mapped '{word}' to {best_doc.metadata.get('source')} with confidence {best_score}%")
+
+#     return word_link_map
+
+
+
+
+def map_bold_words_to_sources_with_threshold(bold_words, documents, threshold=80):
+    word_link_map = {}
+
+    for word in bold_words:
+        print(f"\n🔎 Trying to map bold word: '{word}'")
+        word_lower = word.lower().strip()
+
+        best_doc = None
+        best_confidence = 0
+
+        for doc in documents:
+            title = doc.metadata.get("title", "").lower()
+            content = doc.page_content.lower()
+
+            score = 0
+            possible = 0
+
+            tokens = word_lower.split()
+
+            # title token matches
+            possible += len(tokens) * 3
+            score += sum(3 for t in tokens if t in title)
+
+            # content token matches
+            possible += len(tokens) * 2
+            score += sum(2 for t in tokens if t in content)
+
+            confidence = int((score / possible) * 100) if possible else 0
+
+            if confidence > best_confidence:
+                best_confidence = confidence
+                best_doc = doc
+
+        if best_doc and best_confidence >= threshold:
+            word_link_map[word] = {
+                "link": best_doc.metadata.get("source"),
+                "confidence": best_confidence
+            }
+            print(
+                f"✅ Mapped '{word}' → {best_doc.metadata.get('source')} "
+                f"({best_confidence}%)"
+            )
+        else:
+            print(f"confidence", best_confidence)
+            print(f"❌ No strong match for '{word}'")
+            
+
+    return word_link_map
+
+
+def hyperlink_bold_words(text, word_link_map):
+        for word, data in word_link_map.items():
+            link = data["link"]
+            bold_pattern = f"**{word}**"
+            hyperlink = f"**[{word}]({link})**"
+            text = text.replace(bold_pattern, hyperlink)
+        return text
 
 class Chatbot:
     def __init__(self):
-        self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0)
+        self.llm_nostream = ChatOpenAI(
+            model_name="gpt-4o",
+            temperature=0,
+            streaming=False
+        )
+        self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0,streaming=True)
+        self.llm1 = ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0)
         self.memory = MemorySaver()
         self.rag_tool = RAGTool()
         self.tool_node = None
@@ -149,6 +449,10 @@ class Chatbot:
             return False
         
         return True
+    
+    
+
+    
     def call_model(self, state: MessagesState) -> dict:
         messages = state['messages']
         last_message = messages[-1]
@@ -213,7 +517,9 @@ class Chatbot:
                     **major actions or decisions**
                     **trends or comparisons**
                 - Bold as many important words as needed to improve clarity and emphasis.
+                - Bold words are work like **[]()**.
                 - Use "•" for bullet points
+            
                 
                 
                 STRICT OUTPUT RULES:
@@ -227,25 +533,122 @@ class Chatbot:
                 """
 
 
+            # response = self.llm.invoke([self.system_message, HumanMessage(content=prompt)])
+            response = self.llm_nostream.invoke(
+                [self.system_message, HumanMessage(content=prompt)]
+            )
 
 
-
-            response = self.llm.invoke([self.system_message, HumanMessage(content=prompt)])
             print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
             print(response.content)
             print("&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&")
+            
+            # ✅ Extract bold words from response
+            bold_words = extract_bold_words(response.content)
+            
+            print("🔍 Extracted Bold Words:")
+            print(bold_words)
+            print("=" * 80)
+            
+            bold_source_map = self.rag_tool.map_bold_phrases_to_sources(bold_words)
+            
+            # ===============================
+            # STEP 3: Build bold → URL instructions
+            # ===============================
+            bold_url_instructions = []
 
-            formatted_response = f"{response.content}\n\nSources:\n" + "\n".join(sources)
-            return {"messages": [AIMessage(content=formatted_response)], "sources":sources}
+            for phrase, data in bold_source_map.items():
+                if data.get("source"):
+                    bold_url_instructions.append(
+                        f"- {phrase} → {data['source']}"
+                    )
+
+            bold_url_block = "\n".join(bold_url_instructions)
+            
+            # ===============================
+            # STEP 4: Final formatting pass
+            # ===============================
+            final_prompt = f"""
+            You are IndiaSpend AI.
+
+            You are given an article draft and a list of bold phrases with their URLs.
+
+            TASK:
+            - Wherever a bold phrase appears in the text AND it exists in the mapping,
+            convert it to a markdown hyperlink:
+            **phrase** → **[phrase](URL)**
+
+            RULES (STRICT):
+            - Do NOT change wording
+            - Do NOT add or remove bold phrases
+            - Do NOT invent links
+            - If a bold phrase has no URL, leave it unchanged
+            - Preserve formatting exactly
+
+            BOLD PHRASE → URL MAP:
+            {bold_url_block}
+
+            TEXT:
+            {response.content}
+
+            Return ONLY the updated text.
+            """
+            
+            # final_response = self.llm.invoke(
+            #     [HumanMessage(content=final_prompt)]
+            # )
+            
+            final_response = self.llm.invoke(
+                [HumanMessage(content=final_prompt)],
+                config={"tags": ["final"]}
+            )
+
+
+
+
+
+            for k, v in bold_source_map.items():
+                print(f"\n🔗 {k}")
+                print("Source:", v["source"])
+                print("Confidence:", v["confidence"])
+                print("Context:", v["context"])
+                
+            # response_with_sources = attach_sources_to_bold_text(
+            #     response.content,
+            #     bold_source_map
+            # )
+            
+            response_with_sources = final_response.content
+            
+            print("Final Response with Hyperlinked Bold Words:", response_with_sources)
+
+            
+            print("repsom",response_with_sources)
+
+            # formatted_response = f"{response_with_sources}\n\nSources:\n" + "\n".join(sources)
+            # return {"messages": [AIMessage(content=formatted_response)], "sources":sources}
+        
         
         # print([self.system_message] + messages)
         # For non-RAG queries, process normally
-        response = self.llm.invoke([self.system_message] + messages)
+        # response = self.llm.invoke([self.system_message] + messages)
+        
+        
+
         # print("##################################################################")
         # print(response.content)
         # print("##################################################################")
 
-        return {"messages": [AIMessage(content=response.content)] , "sources":sources}
+        # return {"messages": [AIMessage(content=response.content)] , "sources":sources}
+        
+        # ✅ Extract bold words from non-RAG response too
+        # bold_words = extract_bold_words(response.content)
+
+        return {
+            "messages": [AIMessage(content=response_with_sources)], 
+            "sources": sources,
+            "bold_words": bold_words  # ✅ Add bold words to return
+        }
 
     def router_function(self, state: MessagesState) -> Literal["tools", END]:
         messages = state['messages']
@@ -284,7 +687,7 @@ class Chatbot:
         Return only the questions, each on a new line.
         """
 
-            response = self.llm.invoke([HumanMessage(content=prompt)])
+            response = self.llm1.invoke([HumanMessage(content=prompt)])
 
             questions = [
                 line.strip()
@@ -293,19 +696,74 @@ class Chatbot:
             ]
 
             return questions[:3]
+    
+    def generate_related_questions(self, query: str, answer: str) -> list[str]:
+        prompt = f"""
+    You are IndiaSpend AI.
+
+    Based on the user's question and the answer provided,
+    generate related follow-up questions that help the reader
+    explore the topic more deeply.
+
+    RULES (STRICT):
+    - Generate exactly 4 questions.
+    - Questions must be directly related to the topic.
+    - Do NOT repeat the original question.
+    - Focus on:
+    • impact
+    • causes
+    • policy or governance
+    • data, trends, or geography
+    - Keep questions short and clear.
+    - Do NOT answer the questions.
+    - Do NOT include explanations.
+    - Do NOT use numbering or bullet points.
+    - Each question must be one sentence.
+
+    User question:
+    {query}
+
+    Answer:
+    {answer}
+
+    Return only the questions, one per line.
+    """
+        response = self.fast_llm.invoke([HumanMessage(content=prompt)])
+
+        questions = [
+            line.strip()
+            for line in response.content.split("\n")
+            if line.strip()
+        ]
+
+        return questions[:4]
+
+        
+    
+    # def __call__(self):
+    #     self.setup_tools()
+    #     workflow = StateGraph(MessagesState)
+        
+    #     workflow.add_node("agent", self.call_model)
+    #     workflow.add_node("tools", self.tool_node)
+    #     workflow.add_edge(START, "agent")
+    #     workflow.add_conditional_edges(
+    #         "agent",
+    #         self.router_function,
+    #         {"tools": "tools", END: END}
+    #     )
+    #     # workflow.add_edge("tools", "agent")
+        
+    #     self.app = workflow.compile(checkpointer=self.memory)
+    #     return self.app
+    
     def __call__(self):
-        self.setup_tools()
         workflow = StateGraph(MessagesState)
-        
+
         workflow.add_node("agent", self.call_model)
-        workflow.add_node("tools", self.tool_node)
         workflow.add_edge(START, "agent")
-        workflow.add_conditional_edges(
-            "agent",
-            self.router_function,
-            {"tools": "tools", END: END}
-        )
-        workflow.add_edge("tools", "agent")
-        
+        workflow.add_edge("agent", END)
+
         self.app = workflow.compile(checkpointer=self.memory)
         return self.app
+
