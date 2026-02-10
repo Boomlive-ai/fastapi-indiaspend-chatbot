@@ -14,7 +14,8 @@ from dotenv import load_dotenv
 from utils import preprocess_query
 load_dotenv()
 from datetime import datetime
-
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 import os
 os.environ['OPENAI_API_KEY']= os.getenv("OPENAI_API_KEY")
 
@@ -144,6 +145,22 @@ class RAGTool:
         best_doc, best_score = results[0]
 
         return best_doc, best_score
+    
+    def extract_query_context(self, query: str) -> str:
+        """
+        Extracts a short semantic intent/context of the user query.
+        """
+        prompt = f"""
+        Extract the core topic and intent of the query below in 1–2 sentences.
+        Do NOT add extra explanation.
+
+        Query:
+        {query}
+        """
+
+        response = self.llm.invoke([HumanMessage(content=prompt)])
+        return response.content.strip()
+
 
     def extract_context_window(self, doc, phrase, window=40):
         """
@@ -161,42 +178,117 @@ class RAGTool:
         end = min(len(content), idx + len(phrase) + window * 5)
 
         return content[start:end].strip()
+    
+    
 
-    def map_bold_phrases_to_sources(self, bold_phrases, confidence_threshold=0.50):
-        print("Mapping bold phrases to sources with threshold:", confidence_threshold)
+    def context_similarity(self, query_context: str, doc_context: str) -> float:
+        """
+        Returns cosine similarity between query context and document context.
+        """
+        embeddings = self.embeddings.embed_documents(
+            [query_context, doc_context]
+        )
+
+        sim = cosine_similarity(
+            [embeddings[0]],
+            [embeddings[1]]
+        )[0][0]
+
+        return round(float(sim), 2)
+
+
+    # def map_bold_phrases_to_sources(self, bold_phrases, confidence_threshold=0.50):
+    #     print("Mapping bold phrases to sources with threshold:", confidence_threshold)
+    #     mappings = {}
+
+    #     for phrase in bold_phrases:
+    #         doc, score = self.retrieve_chunk_for_bold_phrase(phrase)
+    #         print("PHRASE:", phrase)
+    #         print("RAW SCORE:", score)
+
+    #         # # Pinecone similarity score: lower is better
+    #         # similarity = 1 - score  
+
+    #         # if similarity < confidence_threshold:
+    #         #     continue
+            
+    #         # # ✅ Keep only strong semantic matches
+    #         # if score <= 0.50:
+    #         #     continue
+            
+    #         if score < confidence_threshold:  # default threshold = 0.60
+    #             print(f"⚠️ Score {score} below threshold {confidence_threshold}, skipping")
+    #             continue
+
+    #         context = self.extract_context_window(doc, phrase)
+
+    #         mappings[phrase] = {
+    #             "source": doc.metadata.get("source"),
+    #             "confidence": round(score, 2),
+    #             "context": context
+    #         }
+    #         print(f"Mapped '{phrase}' to {doc.metadata.get('source')} with confidence {round(score, 2)}")
+            
+
+
+    #     return mappings
+    
+    def map_bold_phrases_to_sources(
+        self,
+        bold_phrases,
+        query: str,
+        confidence_threshold=0.5,
+        context_threshold=0.5
+    ):
+        print("Mapping bold phrases with context matching")
+
         mappings = {}
+
+        # 🔹 Step 1: extract query context once
+        query_context = self.extract_query_context(query)
+        print("🧠 Query Context:", query_context)
 
         for phrase in bold_phrases:
             doc, score = self.retrieve_chunk_for_bold_phrase(phrase)
-            print("PHRASE:", phrase)
+
+            print("\nPHRASE:", phrase)
             print("RAW SCORE:", score)
 
-            # # Pinecone similarity score: lower is better
-            # similarity = 1 - score  
-
-            # if similarity < confidence_threshold:
-            #     continue
-            
-            # # ✅ Keep only strong semantic matches
-            # if score <= 0.50:
-            #     continue
-            
-            if score < confidence_threshold:  # default threshold = 0.60
-                print(f"⚠️ Score {score} below threshold {confidence_threshold}, skipping")
+            # 🔹 Step 2: filter by chunk confidence
+            if score < confidence_threshold:
+                print("❌ Chunk confidence below threshold")
                 continue
 
-            context = self.extract_context_window(doc, phrase)
+            # 🔹 Step 3: extract document context
+            doc_context = self.extract_context_window(doc, phrase)
 
+            # 🔹 Step 4: context similarity check
+            context_score = self.context_similarity(
+                query_context,
+                doc_context
+            )
+
+            print("🔍 Context similarity:", context_score)
+
+            if context_score < context_threshold:
+                print("❌ Context mismatch, skipping")
+                continue
+
+            # ✅ Passed both thresholds
             mappings[phrase] = {
                 "source": doc.metadata.get("source"),
                 "confidence": round(score, 2),
-                "context": context
+                "context": doc_context,
+                "context_score": context_score
             }
-            print(f"Mapped '{phrase}' to {doc.metadata.get('source')} with confidence {round(score, 2)}")
-            
 
+            print(
+                f"✅ Mapped '{phrase}' → {doc.metadata.get('source')} "
+                f"(chunk={round(score,2)}, context={context_score})"
+            )
 
         return mappings
+
 
         
 import re
@@ -516,6 +608,7 @@ class Chatbot:
         last_message = messages[-1]
         query = last_message.content
         sources = []
+        similar_questions = []
         should_use_rag = self.should_use_rag(query)
         print(f"RAG decision for query '{query}': {should_use_rag}")
         if should_use_rag:
@@ -609,7 +702,15 @@ class Chatbot:
             print(bold_words)
             print("=" * 80)
             
-            bold_source_map = self.rag_tool.map_bold_phrases_to_sources(bold_words)
+            # bold_source_map = self.rag_tool.map_bold_phrases_to_sources(bold_words)
+            
+            bold_source_map = self.rag_tool.map_bold_phrases_to_sources(
+                bold_phrases=bold_words,
+                query=query,
+                confidence_threshold=0.5,
+                context_threshold=0.5
+            )
+
             
             # ===============================
             # STEP 3: Build bold → URL instructions
