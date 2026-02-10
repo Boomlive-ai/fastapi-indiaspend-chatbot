@@ -103,7 +103,7 @@ class RAGTool:
         source_links = [
             doc.metadata.get("source", "No source")
             for doc in reranked_docs
-        ]
+        ][:5]
 
         # Step 4: Remove duplicates, preserve order
         source_links = list(dict.fromkeys(source_links))
@@ -112,7 +112,24 @@ class RAGTool:
         return {
             "sources": source_links
         }
-        
+    
+    def retrieve_from_sources(self, query: str, source_links: list[str]) -> list[str]:
+        """
+        Re-rank using semantic retrieval, but keep only provided source_links
+        """
+        # Run normal retrieval + reranking
+        similar_docs = self.retriever.get_relevant_documents(query)
+        reranked_docs = self.rerank_documents(similar_docs, query)
+
+        reranked_sources = [
+            doc.metadata.get("source")
+            for doc in reranked_docs
+            if doc.metadata.get("source") in source_links
+        ]
+
+        # Deduplicate + limit
+        return list(dict.fromkeys(reranked_sources))[:5]
+
     def retrieve_chunk_for_bold_phrase(self, phrase: str, k=3):
         """
         Semantic retrieval for a bold phrase to find
@@ -450,7 +467,48 @@ class Chatbot:
         
         return True
     
-    
+    def generate_similar_questions(self, original_query: str, answer: str) -> list[str]:
+        prompt = f"""
+    You are IndiaSpend AI.
+
+    Based on the user's question and the answer provided,
+    generate related follow-up questions that help the reader
+    explore the topic more deeply.
+
+    RULES (STRICT):
+    - Generate exactly 4 questions.
+    - Questions must be directly related to the topic.
+    - Do NOT repeat the original question.
+    - Focus on:
+    • impact
+    • causes
+    • policy or governance
+    • data, trends, or geography
+    - Keep questions short and clear.
+    - Do NOT answer the questions.
+    - Do NOT include explanations.
+    - Do NOT use numbering or bullet points.
+    - Each question must be one sentence.
+
+    User question:
+    {original_query}
+
+    Answer:
+    {answer}
+
+    Return only the questions, one per line.
+    """
+
+        response = self.llm_nostream.invoke([HumanMessage(content=prompt)])
+
+        questions = [
+            q.strip()
+            for q in response.content.split("\n")
+            if q.strip()
+        ]
+
+        return questions[:4]
+
 
     
     def call_model(self, state: MessagesState) -> dict:
@@ -459,13 +517,14 @@ class Chatbot:
         query = last_message.content
         sources = []
         should_use_rag = self.should_use_rag(query)
+        print(f"RAG decision for query '{query}': {should_use_rag}")
         if should_use_rag:
              # Preprocess the query
             processed_query = preprocess_query(query)
             # print(f"Triggering RAG tool for query: {query}")
             rag_result = self.rag_tool.retrieve(RAGQuery(query=processed_query))
             # result_text = rag_result['result']
-            sources = rag_result['sources']
+            sources = rag_result['sources'][:5]  # Keep only top 5 sources
             sources = sources[:5]
             print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
             print(sources)
@@ -603,10 +662,6 @@ class Chatbot:
                 config={"tags": ["final"]}
             )
 
-
-
-
-
             for k, v in bold_source_map.items():
                 print(f"\n🔗 {k}")
                 print("Source:", v["source"])
@@ -618,16 +673,43 @@ class Chatbot:
             #     bold_source_map
             # )
             
-            response_with_sources = final_response.content
-            
+            response_with_sources = final_response.content          
             print("Final Response with Hyperlinked Bold Words:", response_with_sources)
-
             
-            print("repsom",response_with_sources)
+            # ✅ Generate similar questions based on final answer
+            similar_questions = self.generate_similar_questions(
+                original_query=query,
+                answer=response_with_sources
+            )
+
+            print("🔁 Similar Questions:")
+            print(similar_questions)
+
 
             # formatted_response = f"{response_with_sources}\n\nSources:\n" + "\n".join(sources)
             # return {"messages": [AIMessage(content=formatted_response)], "sources":sources}
-        
+        else:
+            print(f"Non-RAG query detected: '{query}'. Generating response without retrieval.")
+            # ✅ Greeting / non-RAG handling
+            greeting_prompt = f"""
+            You are IndiaSpend AI.
+
+            The user has sent a greeting.
+            Respond politely, briefly, and professionally.
+            Introduce yourself in one sentence.
+            Ask how you can help with India-related data or stories.
+            """
+
+            response = self.llm_nostream.invoke(
+                [self.system_message, HumanMessage(content=greeting_prompt)],
+                config={"tags": ["final"]}
+            )
+
+            response_with_sources = response.content
+            print("Generated greeting response:", response_with_sources)
+            sources = []
+            bold_words = []
+            
         
         # print([self.system_message] + messages)
         # For non-RAG queries, process normally
@@ -647,7 +729,8 @@ class Chatbot:
         return {
             "messages": [AIMessage(content=response_with_sources)], 
             "sources": sources,
-            "bold_words": bold_words  # ✅ Add bold words to return
+            "bold_words": bold_words,
+            "similar_questions": similar_questions
         }
 
     def router_function(self, state: MessagesState) -> Literal["tools", END]:
@@ -740,30 +823,30 @@ class Chatbot:
 
         
     
-    # def __call__(self):
-    #     self.setup_tools()
-    #     workflow = StateGraph(MessagesState)
-        
-    #     workflow.add_node("agent", self.call_model)
-    #     workflow.add_node("tools", self.tool_node)
-    #     workflow.add_edge(START, "agent")
-    #     workflow.add_conditional_edges(
-    #         "agent",
-    #         self.router_function,
-    #         {"tools": "tools", END: END}
-    #     )
-    #     # workflow.add_edge("tools", "agent")
-        
-    #     self.app = workflow.compile(checkpointer=self.memory)
-    #     return self.app
-    
     def __call__(self):
+        self.setup_tools()
         workflow = StateGraph(MessagesState)
-
+        
         workflow.add_node("agent", self.call_model)
+        workflow.add_node("tools", self.tool_node)
         workflow.add_edge(START, "agent")
-        workflow.add_edge("agent", END)
-
+        workflow.add_conditional_edges(
+            "agent",
+            self.router_function,
+            {"tools": "tools", END: END}
+        )
+        # workflow.add_edge("tools", "agent")
+        
         self.app = workflow.compile(checkpointer=self.memory)
         return self.app
+    
+    # def __call__(self):
+    #     workflow = StateGraph(MessagesState)
+
+    #     workflow.add_node("agent", self.call_model)
+    #     workflow.add_edge(START, "agent")
+    #     workflow.add_edge("agent", END)
+
+    #     self.app = workflow.compile(checkpointer=self.memory)
+    #     return self.app
 

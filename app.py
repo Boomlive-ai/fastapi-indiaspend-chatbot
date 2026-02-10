@@ -50,6 +50,7 @@ async def stream_query_bot(question: str, thread_id: str):
 
     async def stream_chunks():
         sources = []
+        similar_questions = []
         try:
             async for event in workflow.astream_events(input_data, config={"configurable": {"thread_id": thread_id}}, version="v2"):
                 # print(event["event"])
@@ -57,6 +58,17 @@ async def stream_query_bot(question: str, thread_id: str):
                 if event["event"]=="on_chat_model_end":
                     # print(event["data"])
                     pass
+                if event["event"] == "on_chain_end" and event["name"] == "agent":
+                    output = event["data"].get("output", {})
+                    if isinstance(output, dict):
+                        similar_questions = output.get("similar_questions", [])
+
+                # if event["event"] == "on_chat_model_end":
+                #     output = event["data"].get("output", {})
+
+                #     if isinstance(output, dict):
+                #         similar_questions = output.get("similar_questions", [])
+
 
                 if event["event"]=="on_retriever_end":
                     print("*************************************************************************")
@@ -95,14 +107,23 @@ async def stream_query_bot(question: str, thread_id: str):
         finally:
         # Send the end marker when the stream finishes
             if sources:
-                sources = prioritize_sources(question, sources)
+                # sources = prioritize_sources(question, sources)
+                sources = mybot.rag_tool.retrieve_from_sources(
+                    query=question,
+                    source_links=sources
+                )
+
                 print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
                 print("QUESTION", question)
                 print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
                 print("SOURCES", sources)
                 print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+                print("SIMILAR QUESTIONS", similar_questions)
 
                 yield f"data: {json.dumps({'sources': sources})}\n\n"
+                
+            if similar_questions:
+                yield f"data: {json.dumps({'similar_questions': similar_questions})}\n\n"
             yield "data: [end]\n\n"
 
     return StreamingResponse(
