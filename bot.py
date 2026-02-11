@@ -33,7 +33,8 @@ class RAGTool:
         self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0, streaming=False)
         self.retriever = self.vectorstore.as_retriever(
             search_type="mmr",
-            search_kwargs={"k": 20, "lambda_mult": 0.5, "fuzzy": True}
+            # search_kwargs={"k": 20, "lambda_mult": 0.5, "fuzzy": True}
+            search_kwargs={"k": 8, "lambda_mult": 0.5}
         )
         self.rag_chain = RetrievalQA.from_chain_type(
             llm=self.llm,
@@ -111,8 +112,10 @@ class RAGTool:
         print("Reranked Sources:", source_links)    
 
         return {
-            "sources": source_links
+            "sources": source_links,
+            "docs": reranked_docs   # 👈 ADD THIS
         }
+
     
     def retrieve_from_sources(self, query: str, source_links: list[str]) -> list[str]:
         """
@@ -233,13 +236,22 @@ class RAGTool:
 
     #     return mappings
     
+    # def map_bold_phrases_to_sources(
+    #     self,
+    #     bold_phrases,
+    #     query: str,
+    #     confidence_threshold=0.5,
+    #     context_threshold=0.5
+    # ):
     def map_bold_phrases_to_sources(
-        self,
-        bold_phrases,
-        query: str,
-        confidence_threshold=0.5,
-        context_threshold=0.5
-    ):
+                self,
+                bold_phrases,
+                query: str,
+                documents,   # 👈 ADD THIS
+                confidence_threshold=0.5,
+                context_threshold=0.5
+        ):
+
         print("Mapping bold phrases with context matching")
 
         mappings = {}
@@ -249,42 +261,66 @@ class RAGTool:
         print("🧠 Query Context:", query_context)
 
         for phrase in bold_phrases:
-            doc, score = self.retrieve_chunk_for_bold_phrase(phrase)
+            # doc, score = self.retrieve_chunk_for_bold_phrase(phrase)
 
-            print("\nPHRASE:", phrase)
-            print("RAW SCORE:", score)
+            # print("\nPHRASE:", phrase)
+            # print("RAW SCORE:", score)
 
-            # 🔹 Step 2: filter by chunk confidence
-            if score < confidence_threshold:
-                print("❌ Chunk confidence below threshold")
+            # # 🔹 Step 2: filter by chunk confidence
+            # if score < confidence_threshold:
+            #     print("❌ Chunk confidence below threshold")
+            #     continue
+
+            # # 🔹 Step 3: extract document context
+            # doc_context = self.extract_context_window(doc, phrase)
+
+            # # 🔹 Step 4: context similarity check
+            # context_score = self.context_similarity(
+            #     query_context,
+            #     doc_context
+            # )
+
+            # print("🔍 Context similarity:", context_score)
+
+            # if context_score < context_threshold:
+            #     print("❌ Context mismatch, skipping")
+            #     continue
+
+            # # ✅ Passed both thresholds
+            # mappings[phrase] = {
+            #     "source": doc.metadata.get("source"),
+            #     "confidence": round(score, 2),
+            #     "context": doc_context,
+            #     "context_score": context_score
+            # }
+            best_doc = None
+            best_score = 0
+
+            for doc in documents:
+                content = doc.page_content.lower()
+                phrase_lower = phrase.lower()
+
+                if phrase_lower in content:
+                    score = content.count(phrase_lower)
+
+                    if score > best_score:
+                        best_score = score
+                        best_doc = doc
+
+            if not best_doc:
                 continue
 
-            # 🔹 Step 3: extract document context
-            doc_context = self.extract_context_window(doc, phrase)
+            doc_context = self.extract_context_window(best_doc, phrase)
 
-            # 🔹 Step 4: context similarity check
-            context_score = self.context_similarity(
-                query_context,
-                doc_context
-            )
-
-            print("🔍 Context similarity:", context_score)
-
-            if context_score < context_threshold:
-                print("❌ Context mismatch, skipping")
-                continue
-
-            # ✅ Passed both thresholds
             mappings[phrase] = {
-                "source": doc.metadata.get("source"),
-                "confidence": round(score, 2),
-                "context": doc_context,
-                "context_score": context_score
+                "source": best_doc.metadata.get("source"),
+                "confidence": best_score,
+                "context": doc_context
             }
 
             print(
                 f"✅ Mapped '{phrase}' → {doc.metadata.get('source')} "
-                f"(chunk={round(score,2)}, context={context_score})"
+                # f"(chunk={round(score,2)}, context={context_score})"
             )
 
         return mappings
@@ -617,7 +653,11 @@ class Chatbot:
             # print(f"Triggering RAG tool for query: {query}")
             rag_result = self.rag_tool.retrieve(RAGQuery(query=processed_query))
             # result_text = rag_result['result']
-            sources = rag_result['sources'][:5]  # Keep only top 5 sources
+            # sources = rag_result['sources'][:5]  # Keep only top 5 sources
+            sources = rag_result['sources'][:5]
+            retrieved_docs = rag_result.get("docs", [])   # 👈 ADD THIS
+
+
             sources = sources[:5]
             print("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^")
             print(sources)
@@ -704,12 +744,21 @@ class Chatbot:
             
             # bold_source_map = self.rag_tool.map_bold_phrases_to_sources(bold_words)
             
+            # bold_source_map = self.rag_tool.map_bold_phrases_to_sources(
+            #     bold_phrases=bold_words,
+            #     query=query,
+            #     confidence_threshold=0.5,
+            #     context_threshold=0.5
+            # )
+            
             bold_source_map = self.rag_tool.map_bold_phrases_to_sources(
                 bold_phrases=bold_words,
                 query=query,
+                documents=retrieved_docs,   # 👈 ADD THIS
                 confidence_threshold=0.5,
                 context_threshold=0.5
             )
+
 
             
             # ===============================
@@ -774,7 +823,10 @@ class Chatbot:
             #     bold_source_map
             # )
             
-            response_with_sources = final_response.content          
+            response_with_sources = final_response.content 
+            
+            # Add extra spacing before first bullet
+            response_with_sources = response_with_sources.replace("\n•", "\n\n•", 1)         
             print("Final Response with Hyperlinked Bold Words:", response_with_sources)
             
             # ✅ Generate similar questions based on final answer
