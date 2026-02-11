@@ -700,7 +700,6 @@ class Chatbot:
                 
                 ALLOWED FORMATTING:                
                 - Use "**bold**" to highlight:
-                    **numbers and statistics**
                     **years and timelines**
                     **key outcomes or results**
                     **policy names or programs**
@@ -793,6 +792,17 @@ class Chatbot:
             - Do NOT invent links
             - If a bold phrase has no URL, leave it unchanged
             - Preserve formatting exactly
+            
+            Formatting Rules (VERY IMPORTANT):
+
+            1. Each source URL may be used ONLY ONCE in the entire response.
+            2. If the same source URL applies to multiple terms:
+            - Hyperlink it only the first time it appears.
+            - For later mentions, keep the term bold but DO NOT add the hyperlink again with another word.
+            3. Never attach the same URL to different words.
+            4. Add exactly one blank line between the summary paragraph and bullet points.
+            5. Maintain clean markdown formatting.
+
 
             BOLD PHRASE → URL MAP:
             {bold_url_block}
