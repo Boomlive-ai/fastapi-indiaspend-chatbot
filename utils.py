@@ -4,12 +4,79 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 # Import necessary libraries
 import nltk
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
+from langchain_openai import OpenAIEmbeddings
+import uuid
+import requests
+import os
+import csv
+from datetime import datetime
+# import datetime
+# print("date_time",datetime.__file__)
+
 
 # Download the 'punkt' tokenizer resource
 nltk.download('punkt')
 
 # Your other imports and code follow
 from nltk.tokenize import word_tokenize
+
+
+def get_qdrant_client():
+    return QdrantClient(
+        url=os.getenv("QDRANT_URL"),
+        api_key=os.getenv("QDRANT_API_KEY"),
+        prefer_grpc=False,
+        timeout=30.0
+    )
+
+
+def create_collection_if_not_exists(collection_name="india-spend"):
+    client = get_qdrant_client()
+
+    existing = [c.name for c in client.get_collections().collections]
+
+    if collection_name not in existing:
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(
+                size=1536,  # text-embedding-3-small
+                distance=Distance.COSINE
+            )
+        )
+        print(f"Created collection: {collection_name}")
+
+    return client
+
+async def store_docs_in_qdrant(docs, collection_name="india-spend"):
+    client = create_collection_if_not_exists(collection_name)
+
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+
+    texts = [doc.page_content for doc in docs]
+    vectors = embeddings.embed_documents(texts)
+
+    points = []
+
+    for doc, vector in zip(docs, vectors):
+        points.append(
+            PointStruct(
+                id=str(uuid.uuid4()),
+                vector=vector,
+                payload={
+                    "text": doc.page_content,
+                    **doc.metadata
+                }
+            )
+        )
+
+    client.upsert(
+        collection_name=collection_name,
+        points=points
+    )
+
+    print(f"Stored {len(points)} chunks in Qdrant.")
 
 
 def extract_sources_and_result(result: str):
@@ -69,7 +136,7 @@ def prioritize_sources(response_text: str, sources: list) -> list:
 
     # Sort sources by similarity scores in descending order
     sorted_indices = sorted(range(len(sources)), key=lambda i: similarities[i], reverse=True)
-    sorted_sources = [sources[i] for i in sorted_indices]
+    sorted_sources = [sources[i] for i in sorted_indices][:5]
 
     return sorted_sources
 
@@ -147,7 +214,7 @@ def extract_clean_sources(response: dict) -> list:
 ################################################VECTOR STORE DATABASE################################################################
 
 
-import datetime, json
+# import datetime, json
 import requests
 from bs4 import BeautifulSoup
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -191,7 +258,13 @@ async def store_daily_articles():
             docsperindex = await fetch_docs_custom_range(filtered_urls)
             print(f"Processed {len(filtered_urls)} articles and {len(docsperindex)} chunks to add to Pinecone.")
 
-            await store_docs_in_pinecone(docsperindex, index_name, filtered_urls)
+            # await store_docs_in_pinecone(docsperindex, index_name, filtered_urls)
+            
+            await store_docs_in_qdrant(docsperindex, index_name)
+            await add_urls_to_database(json.dumps(filtered_urls))
+
+
+            
         return filtered_urls
     except Exception as e:
         print(f"Error in store_daily_articles: {str(e)}")
@@ -199,79 +272,427 @@ async def store_daily_articles():
 
 
 
-async def store_articles_custom_range(from_date: str = None, to_date: str = None):
-    """
-    Fetch and store articles based on a custom date range.
+# async def store_articles_custom_range(from_date: str = None, to_date: str = None):
+#     """
+#     Fetch and store articles based on a custom date range.
 
-    Args:
-        from_date (str): Start date in 'YYYY-MM-DD' format. Defaults to 6 months ago.
-        to_date (str): End date in 'YYYY-MM-DD' format. Defaults to today.
+#     Args:
+#         from_date (str): Start date in 'YYYY-MM-DD' format. Defaults to 6 months ago.
+#         to_date (str): End date in 'YYYY-MM-DD' format. Defaults to today.
 
-    Returns:
-        list: List of all article URLs processed.
-    """
-    # Initialize variables
-    article_urls = []
+#     Returns:
+#         list: List of all article URLs processed.
+#     """
+#     # Initialize variables
+#     article_urls = []
+#     start_index = 0
+#     count = 20
+
+#     # Calculate default date range if not provided
+#     current_date = datetime.date.today()
+#     if not to_date:
+#         to_date = current_date.strftime('%Y-%m-%d')
+#     if not from_date:
+#         custom_months_ago = current_date - datetime.timedelta(days=180)  # Default to 6 months ago
+#         from_date = custom_months_ago.strftime('%Y-%m-%d')
+
+#     # Validate the date range
+#     if not validate_date_range(from_date, to_date):
+#         print("Invalid date range. Ensure 'from_date' <= 'to_date' and format is YYYY-MM-DD.")
+#         return []
+
+#     print(f"Fetching data from {from_date} to {to_date}....")
+#     index_name = "india-spend"
+
+#     while True:
+#         perpageurl = []
+#         print("Now start index is ", start_index)
+
+#         # Construct API URL with the custom range
+#         api_url = f'https://indiaspend.com/dev/h-api/news?startIndex={start_index}&count={count}&fromDate={from_date}&toDate={to_date}'
+#         headers = {
+#             "accept": "*/*",
+#             "s-id": os.getenv("INDIA_SPEND_S_ID")
+#         }
+#         print(f"Current API URL: {api_url}")
+
+#         response = requests.get(api_url, headers=headers)
+
+#         if response.status_code == 200:
+#             data = response.json()
+
+#             # Break if no articles are found
+#             if not data.get("news"):
+#                 break
+
+#             for news_item in data.get("news", []):
+#                 url_path = news_item.get("url")
+#                 if url_path:
+#                     article_urls.append(url_path)
+#                     perpageurl.append(url_path)
+
+#             # print(perpageurl)
+#             # # Filter and process URLs
+#             filtered_urls = await filter_urls_custom_range(json.dumps(perpageurl))
+#             # print("These are filtered urls",filtered_urls)
+#             docsperindex = await fetch_docs_custom_range(filtered_urls)
+#             print(f"Processed {len(filtered_urls)} articles and {len(docsperindex)} chunks to add to Pinecone.")
+
+#             # await store_docs_in_pinecone(docsperindex, index_name, filtered_urls)
+            
+#             await store_docs_in_qdrant(docsperindex, index_name)
+#             await add_urls_to_database(json.dumps(filtered_urls))
+
+#             start_index += count
+#         else:
+#             print(f"Failed to fetch articles. Status code: {response.status_code}")
+#             break
+
+#     return article_urls
+
+# async def store_articles_custom_range(from_date: str = None, to_date: str = None):
+#     article_urls = []
+#     start_index = 0
+#     count = 20
+
+#     current_date = datetime.date.today()
+
+#     if not to_date:
+#         to_date = current_date.strftime('%Y-%m-%d')
+
+#     if not from_date:
+#         custom_months_ago = current_date - datetime.timedelta(days=180)
+#         from_date = custom_months_ago.strftime('%Y-%m-%d')
+
+#     if not validate_date_range(from_date, to_date):
+#         print("Invalid date range.")
+#         return []
+
+#     print(f"Fetching data from {from_date} to {to_date}...")
+#     index_name = "india-spend"
+
+#     while True:
+#         perpageurl = []
+
+#         # api_url = f'https://indiaspend.com/dev/h-api/news?startIndex={start_index}&count={count}&fromDate={from_date}&toDate={to_date}'
+        
+#         api_url = f'https://indiaspend.com/dev/h-api/news?fromDate={from_date}&toDate={to_date}'
+
+#         headers = {
+#             "accept": "*/*",
+#             "s-id": os.getenv("INDIA_SPEND_S_ID")
+#         }
+
+#         response = requests.get(api_url, headers=headers)
+#         date_news = response.json().get("date_news", [])
+#         print("date",date_news)
+
+#         if response.status_code != 200:
+#             break
+
+#         data = response.json()
+
+#         if not data.get("news"):
+#             break
+
+#         # for news_item in data.get("news", []):
+#         #     article_data = {
+#         #         "url": news_item.get("url"),
+#         #         "date_updated": news_item.get("date_updated"),
+#         #         "date_news": news_item.get("date_news"),
+#         #         "seo_title": news_item.get("seo_title"),
+#         #         "description": news_item.get("description"),
+#         #         "keywords": news_item.get("keywords"),
+#         #     }
+#         #     print("Article data:", article_data)  # Debugging line to inspect article data
+#         #     url_path = news_item.get("url")
+#         #     if url_path:
+#         #         article_urls.append(url_path)
+#         #         perpageurl.append(url_path)
+#         for news_item in data.get("news", []):
+#             article_data = {
+#                 "url": news_item.get("url"),
+#                 "date_updated": news_item.get("date_updated"),
+#                 "date_news": news_item.get("date_news"),
+#                 "seo_title": news_item.get("seo_title"),
+#             }
+
+#             if article_data["url"]:
+#                 article_urls.append(article_data)
+#                 perpageurl.append(article_data)
+
+                
+#         print("Raw URLs from API:", perpageurl)
+#         print("Count before filtering:", len(perpageurl))
+
+#         # filtered_urls = await filter_urls_custom_range(json.dumps(perpageurl))
+        
+#         filtered_urls = perpageurl
+        
+#         print("Filtered URLs:", filtered_urls)
+#         print("Count after filtering:", len(filtered_urls))
+
+#         docsperindex = await fetch_docs_custom_range(filtered_urls)
+
+#         print(f"Processed {len(filtered_urls)} articles and {len(docsperindex)} chunks.")
+
+#         # 🔥 Store in Qdrant instead of Pinecone
+#         await store_docs_in_qdrant(docsperindex, index_name)
+
+#         await add_urls_to_database(json.dumps(filtered_urls))
+
+#         start_index += count
+
+#     return article_urls
+
+
+
+# async def store_articles_custom_range(from_date, to_date):
+#     start_index = 0
+#     count = 20
+#     total_processed = 0
+#     page_number = 1
+
+#     log_file = "logs.csv"
+
+#     # Create CSV file with header if not exists
+#     if not os.path.exists(log_file):
+#         with open(log_file, mode="w", newline="", encoding="utf-8") as file:
+#             writer = csv.writer(file)
+#             writer.writerow([
+#                 "timestamp",
+#                 "page_number",
+#                 "start_index",
+#                 "articles_received",
+#                 "chunks_created",
+#                 "total_processed",
+#                 "status"
+#             ])
+
+#     while True:
+#         api_url = (
+#             f"https://indiaspend.com/dev/h-api/news"
+#             f"?startIndex={start_index}"
+#             f"&count={count}"
+#             f"&fromDate={from_date}"
+#             f"&toDate={to_date}"
+#         )
+
+#         print(f"\n📄 Fetching Page {page_number} | StartIndex: {start_index}")
+
+#         try:
+#             response = requests.get(
+#                 api_url,
+#                 headers={
+#                     "accept": "*/*",
+#                     "s-id": os.getenv("INDIA_SPEND_S_ID")
+#                 }
+#             )
+
+#             if response.status_code != 200:
+#                 print(f"❌ API failed with status {response.status_code}")
+#                 status = f"API_ERROR_{response.status_code}"
+#                 break
+
+#             data = response.json()
+#             news_list = data.get("news", [])
+
+#             if not news_list:
+#                 print("✅ No more articles found.")
+#                 status = "NO_MORE_DATA"
+#                 break
+
+#             print(f"📰 Articles received: {len(news_list)}")
+
+#             articles = []
+#             for news_item in news_list:
+#                 article_data = {
+#                     "url": news_item.get("url"),
+#                     "date_updated": news_item.get("date_updated"),
+#                     "date_news": news_item.get("date_news"),
+#                     "seo_title": news_item.get("seo_title"),
+#                     "description": news_item.get("description"),
+#                     "keywords": news_item.get("keywords"),
+#                 }
+
+#                 if article_data["url"]:
+#                     articles.append(article_data)
+
+#             docs = await fetch_docs_custom_range(articles)
+#             chunks_created = len(docs)
+
+#             print(f"✂ Chunks created: {chunks_created}")
+
+#             await store_docs_in_qdrant(docs)
+
+#             total_processed += len(articles)
+
+#             status = "SUCCESS"
+
+#             print(f"✅ Completed Page {page_number}")
+#             print(f"📊 Total Articles Processed: {total_processed}")
+
+#             # Write log to CSV
+#             with open(log_file, mode="a", newline="", encoding="utf-8") as file:
+#                 writer = csv.writer(file)
+#                 writer.writerow([
+#                     datetime.now().isoformat(),
+#                     page_number,
+#                     start_index,
+#                     len(news_list),
+#                     chunks_created,
+#                     total_processed,
+#                     status
+#                 ])
+
+#             # Move to next batch
+#             start_index += count
+#             page_number += 1
+
+#         except Exception as e:
+#             print(f"❌ Error occurred: {e}")
+#             status = f"ERROR_{str(e)}"
+
+#             with open(log_file, mode="a", newline="", encoding="utf-8") as file:
+#                 writer = csv.writer(file)
+#                 writer.writerow([
+#                     datetime.now().isoformat(),
+#                     page_number,
+#                     start_index,
+#                     0,
+#                     0,
+#                     total_processed,
+#                     status
+#                 ])
+#             break
+
+#     print("\n🎉 INGESTION COMPLETED")
+#     print(f"📦 Total Articles Stored: {total_processed}")
+
+async def store_articles_custom_range(from_date, to_date):
     start_index = 0
     count = 20
+    total_processed = 0
+    page_number = 1
+    # log_file = "logs.csv"
 
-    # Calculate default date range if not provided
-    current_date = datetime.date.today()
-    if not to_date:
-        to_date = current_date.strftime('%Y-%m-%d')
-    if not from_date:
-        custom_months_ago = current_date - datetime.timedelta(days=180)  # Default to 6 months ago
-        from_date = custom_months_ago.strftime('%Y-%m-%d')
-
-    # Validate the date range
-    if not validate_date_range(from_date, to_date):
-        print("Invalid date range. Ensure 'from_date' <= 'to_date' and format is YYYY-MM-DD.")
-        return []
-
-    print(f"Fetching data from {from_date} to {to_date}....")
-    index_name = "india-spend"
+    # # Create CSV file with header if it doesn't exist
+    # if not os.path.exists(log_file):
+    #     with open(log_file, mode="w", newline="", encoding="utf-8") as file:
+    #         writer = csv.writer(file)
+    #         writer.writerow([
+    #             "timestamp",
+    #             "page_number",
+    #             "start_index",
+    #             "articles_received",
+    #             "chunks_created",
+    #             "total_processed",
+    #             "status"
+    #         ])
 
     while True:
-        perpageurl = []
-        print("Now start index is ", start_index)
+        api_url = (
+            f"https://indiaspend.com/dev/h-api/news"
+            f"?startIndex={start_index}"
+            f"&count={count}"
+            f"&fromDate={from_date}"
+            f"&toDate={to_date}"
+        )
 
-        # Construct API URL with the custom range
-        api_url = f'https://indiaspend.com/dev/h-api/news?startIndex={start_index}&count={count}&fromDate={from_date}&toDate={to_date}'
-        headers = {
-            "accept": "*/*",
-            "s-id": os.getenv("INDIA_SPEND_S_ID")
-        }
-        print(f"Current API URL: {api_url}")
+        print(f"\n📄 Fetching Page {page_number} | StartIndex: {start_index}")
 
-        response = requests.get(api_url, headers=headers)
+        try:
+            response = requests.get(
+                api_url,
+                headers={
+                    "accept": "*/*",
+                    "s-id": os.getenv("INDIA_SPEND_S_ID")
+                }
+            )
 
-        if response.status_code == 200:
-            data = response.json()
-
-            # Break if no articles are found
-            if not data.get("news"):
+            if response.status_code != 200:
+                status = f"API_ERROR_{response.status_code}"
+                print(f"❌ API failed: {status}")
                 break
 
-            for news_item in data.get("news", []):
-                url_path = news_item.get("url")
-                if url_path:
-                    article_urls.append(url_path)
-                    perpageurl.append(url_path)
+            data = response.json()
+            news_list = data.get("news", [])
 
-            # print(perpageurl)
-            # # Filter and process URLs
-            filtered_urls = await filter_urls_custom_range(json.dumps(perpageurl))
-            # print("These are filtered urls",filtered_urls)
-            docsperindex = await fetch_docs_custom_range(filtered_urls)
-            print(f"Processed {len(filtered_urls)} articles and {len(docsperindex)} chunks to add to Pinecone.")
+            if not news_list:
+                print("✅ No more articles found.")
+                status = "NO_MORE_DATA"
+                break
 
-            await store_docs_in_pinecone(docsperindex, index_name, filtered_urls)
+            print(f"📰 Articles received: {len(news_list)}")
+
+            articles = []
+            for news_item in news_list:
+                article_data = {
+                    "url": news_item.get("url"),
+                    "date_updated": news_item.get("date_updated"),
+                    "date_news": news_item.get("date_news"),
+                    "seo_title": news_item.get("seo_title"),
+                    "description": news_item.get("description"),
+                    "keywords": news_item.get("keywords"),
+                }
+
+                if article_data["url"]:
+                    articles.append(article_data)
+
+            # Fetch + preprocess
+            docs = await fetch_docs_custom_range(articles)
+            chunks_created = len(docs)
+
+            print(f"✂ Chunks created: {chunks_created}")
+
+            # Store in Qdrant
+            await store_docs_in_qdrant(docs)
+
+            total_processed += len(articles)
+            status = "SUCCESS"
+
+            print(f"✅ Completed Page {page_number}")
+            print(f"📊 Total Articles Processed: {total_processed}")
+
+            # Write success log
+            # with open(log_file, mode="a", newline="", encoding="utf-8") as file:
+            #     writer = csv.writer(file)
+            #     writer.writerow([
+            #         datetime.now().isoformat(),
+            #         page_number,
+            #         start_index,
+            #         len(news_list),
+            #         chunks_created,
+            #         total_processed,
+            #         status
+            #     ])
+
+            # Move to next batch
             start_index += count
-        else:
-            print(f"Failed to fetch articles. Status code: {response.status_code}")
+            page_number += 1
+
+        except Exception as e:
+            status = f"ERROR: {str(e)}"
+            print(f"❌ Error occurred: {status}")
+
+            # with open(log_file, mode="a", newline="", encoding="utf-8") as file:
+            #     writer = csv.writer(file)
+            #     writer.writerow([
+            #         datetime.now().isoformat(),
+            #         page_number,
+            #         start_index,
+            #         0,
+            #         0,
+            #         total_processed,
+            #         status
+            #     ])
+
             break
 
-    return article_urls
+    print("\n🎉 INGESTION COMPLETED")
+    print(f"📦 Total Articles Stored: {total_processed}")
+
+
 
 
 
@@ -313,34 +734,95 @@ async def filter_urls_custom_range(urls):
 
 
 
-async def fetch_docs_custom_range(urls):
-    data = []
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+# async def fetch_docs_custom_range(urls):
+#     data = []
+#     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
 
-    for url in urls:
+#     for url in urls:
+#         try:
+#             response = requests.get(url, timeout=10)
+#             response.raise_for_status()
+
+#             # Parse only HTML content
+#             if 'text/html' not in response.headers.get('Content-Type', ''):
+#                 print(f"Skipped non-HTML content at {url}")
+#                 continue
+
+#             # Extract text using BeautifulSoup
+#             soup = BeautifulSoup(response.content, 'html.parser')
+#             text = ' '.join([p.get_text() for p in soup.find_all(['p', 'h1', 'h2', 'h3'])])
+
+#             document = Document(page_content=text, metadata={"source": url})
+#             data.append(document)
+#         except requests.exceptions.RequestException as e:
+#             print(f"Failed to fetch {url}: {e}")
+#             continue
+
+#     docs = text_splitter.split_documents(data)
+#     preprocessed_docs = await preprocess_documents(docs)
+
+#     return preprocessed_docs
+
+async def fetch_docs_custom_range(articles):
+    data = []
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200
+    )
+
+    for article in articles:
         try:
+            url = article.get("url")
+            date_updated = article.get("date_updated")
+            date_news = article.get("date_news")
+            seo_title = article.get("seo_title")
+            description = article.get("description")
+            keywords = article.get("keywords")
+
+            if not url:
+                continue
+
             response = requests.get(url, timeout=10)
             response.raise_for_status()
 
-            # Parse only HTML content
+            # Ensure we only parse HTML
             if 'text/html' not in response.headers.get('Content-Type', ''):
                 print(f"Skipped non-HTML content at {url}")
                 continue
 
-            # Extract text using BeautifulSoup
             soup = BeautifulSoup(response.content, 'html.parser')
-            text = ' '.join([p.get_text() for p in soup.find_all(['p', 'h1', 'h2', 'h3'])])
 
-            document = Document(page_content=text, metadata={"source": url})
+            # Extract text content
+            text = ' '.join(
+                [p.get_text() for p in soup.find_all(['p', 'h1', 'h2', 'h3'])]
+            )
+
+            document = Document(
+                page_content=text,
+                metadata={
+                    "source": url,
+                    "seo_title": seo_title,
+                    "date_updated": date_updated,
+                    "date_news": date_news,
+                    "description": description,
+                    "keywords": keywords
+                }
+            )
+
             data.append(document)
+
         except requests.exceptions.RequestException as e:
             print(f"Failed to fetch {url}: {e}")
             continue
 
+    # Split into chunks
     docs = text_splitter.split_documents(data)
+
+    # Optional preprocessing (if you already have this function)
     preprocessed_docs = await preprocess_documents(docs)
 
     return preprocessed_docs
+
 
 
 async def store_docs_in_pinecone(docs, index_name, urls):
@@ -606,7 +1088,7 @@ async def preprocess_documents(docs):
         
         # 5. Add preprocessing metadata
         metadata["preprocessed"] = True
-        metadata["processed_date"] = datetime.datetime.now().isoformat()
+        metadata["processed_date"] = datetime.now().isoformat()
         metadata["original_length"] = len(content)
         metadata["processed_length"] = len(processed_content)
         
