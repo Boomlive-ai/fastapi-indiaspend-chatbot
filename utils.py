@@ -1047,9 +1047,10 @@ async def preprocess_documents(docs):
         nltk.data.find('corpora/stopwords')
         nltk.data.find('corpora/wordnet')
     except LookupError:
-        nltk.download('punkt')
-        nltk.download('stopwords')
-        nltk.download('wordnet')
+        raise RuntimeError("NLTK wordnet not installed. Please install before running.")
+        # nltk.download('punkt')
+        # nltk.download('stopwords')
+        # nltk.download('wordnet')
     
     # Initialize lemmatizer and stopwords
     lemmatizer = WordNetLemmatizer()
