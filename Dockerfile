@@ -62,7 +62,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ✅ Install NLTK data AFTER nltk is installed
 RUN mkdir -p /usr/local/nltk_data \
-    && python -m nltk.downloader -d /usr/local/nltk_data punkt punkt_tab stopwords wordnet
+    && python -m nltk.downloader -d /home/appuser/nltk_data punkt punkt_tab stopwords wordnet
 
 # Copy the rest of the application code
 COPY . /app
