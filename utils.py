@@ -5,6 +5,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 # Import necessary libraries
 import nltk
 print("NLTK PATH:", nltk.data.path)
+from nltk.corpus import wordnet
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from langchain_openai import OpenAIEmbeddings
@@ -1050,7 +1051,8 @@ async def preprocess_documents(docs):
     try:
         nltk.data.find('tokenizers/punkt')
         nltk.data.find('corpora/stopwords')
-        nltk.data.find('corpora/wordnet')
+        # nltk.data.find('corpora/wordnet')
+        wordnet.ensure_loaded()
     except LookupError:
         raise RuntimeError("NLTK wordnet not installed. Please install before running.")
         # nltk.download('punkt')
