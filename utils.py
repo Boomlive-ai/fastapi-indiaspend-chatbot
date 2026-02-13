@@ -4,6 +4,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 # Import necessary libraries
 import nltk
+print("NLTK PATH:", nltk.data.path)
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from langchain_openai import OpenAIEmbeddings
@@ -17,7 +18,7 @@ from datetime import datetime
 
 
 # Download the 'punkt' tokenizer resource
-nltk.download('punkt')
+# nltk.download('punkt')
 
 # Your other imports and code follow
 from nltk.tokenize import word_tokenize
@@ -945,12 +946,16 @@ def preprocess_query(query_text):
     """
     # Download required NLTK packages if not already downloaded
     try:
+        
+        nltk.data.find('tokenizers/punkt')
+        nltk.data.find('corpora/stopwords')
+        nltk.data.find('corpora/wordnet')
         # Make sure to download these resources first
         
-        nltk.download('punkt')
-        nltk.download('punkt_tab')  # though this might not exist as a standard resource
-        nltk.download('stopwords')
-        nltk.download('wordnet')
+        # nltk.download('punkt')
+        # nltk.download('punkt_tab')  # though this might not exist as a standard resource
+        # nltk.download('stopwords')
+        # nltk.download('wordnet')
     except Exception as e:
         print(f"Error downloading NLTK resources: {str(e)}")
     
