@@ -55,13 +55,37 @@ async def stream_query_bot(question: str, thread_id: str):
             async for event in workflow.astream_events(input_data, config={"configurable": {"thread_id": thread_id}}, version="v2"):
                 # print(event["event"])
 
-                if event["event"]=="on_chat_model_end":
-                    # print(event["data"])
-                    pass
+                # if event["event"]=="on_chat_model_end":
+                #     # print(event["data"])
+                #     pass
+                # if event["event"] == "on_chain_end" and event["name"] == "agent":
+                #     output = event["data"].get("output", {})
+                #     if isinstance(output, dict):
+                #         similar_questions = output.get("similar_questions", [])
+                
                 if event["event"] == "on_chain_end" and event["name"] == "agent":
                     output = event["data"].get("output", {})
+
                     if isinstance(output, dict):
                         similar_questions = output.get("similar_questions", [])
+
+                        messages = output.get("messages", [])
+                        if messages:
+                            final_message = messages[-1].content
+
+                            # ✅ Apply formatting here
+                            formatted_message = final_message.replace("\n•", "\n\n•", 1)
+
+                            print("Final Response with Hyperlinked Bold Words:", formatted_message)
+
+                            # 🔥 Stream character-by-character
+                            # for char in formatted_message:
+                            #     yield f"data: {char}\n\n"
+                            for word in formatted_message.split(" "):
+                                yield f"data: {word} "
+                                yield "\n\n"
+
+
 
                 # if event["event"] == "on_chat_model_end":
                 #     output = event["data"].get("output", {})
