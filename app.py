@@ -42,6 +42,123 @@ class ArticleRangeRequest(BaseModel):
  
     
 @app.get("/stream_query")
+# async def stream_query_bot(question: str, thread_id: str):
+#     if not question or not thread_id:
+#         raise HTTPException(status_code=400, detail="Missing required parameters.")
+    
+#     input_data = {"messages": [HumanMessage(content=question)]}
+
+#     async def stream_chunks():
+#         sources = []
+#         similar_questions = []
+#         try:
+#             async for event in workflow.astream_events(input_data, config={"configurable": {"thread_id": thread_id}}, version="v2"):
+#                 # print(event["event"])
+
+#                 # if event["event"]=="on_chat_model_end":
+#                 #     # print(event["data"])
+#                 #     pass
+#                 # if event["event"] == "on_chain_end" and event["name"] == "agent":
+#                 #     output = event["data"].get("output", {})
+#                 #     if isinstance(output, dict):
+#                 #         similar_questions = output.get("similar_questions", [])
+                
+#                 if event["event"] == "on_chain_end" and event["name"] == "agent":
+#                     output = event["data"].get("output", {})
+
+#                     if isinstance(output, dict):
+#                         similar_questions = output.get("similar_questions", [])
+
+#                         messages = output.get("messages", [])
+#                         if messages:
+#                             final_message = messages[-1].content
+
+#                             # ✅ Apply formatting here
+#                             formatted_message = final_message.replace("\n•", "\n\n•", 1)
+
+#                             print("Final Response with Hyperlinked Bold Words:", formatted_message)
+
+#                             # 🔥 Stream character-by-character
+#                             # for char in formatted_message:
+#                             #     yield f"data: {char}\n\n"
+#                             for word in formatted_message.split(" "):
+#                                 yield f"data: {word} "
+#                                 yield "\n\n"
+
+
+
+#                 # if event["event"] == "on_chat_model_end":
+#                 #     output = event["data"].get("output", {})
+
+#                 #     if isinstance(output, dict):
+#                 #         similar_questions = output.get("similar_questions", [])
+
+
+#                 if event["event"]=="on_retriever_end":
+#                     print("*************************************************************************")
+#                     # print(event["data"])  # Debug print to check the data structure
+
+#                     # Extract sources from the "output" field
+#                     output = event["data"].get("output", [])
+#                     if isinstance(output, list):  # Ensure the output is a list
+#                         sources.extend(
+#                             [doc.metadata.get("source") for doc in output if doc.metadata.get("source")]
+#                         )  # Print the extracted sources
+                       
+
+#                 # if event["event"] == "on_chat_model_stream":
+#                 if (
+#                         event["event"] == "on_chat_model_stream"
+#                         and event["name"] == "ChatOpenAI"
+#                         and "final" in event["tags"]
+#                     ):
+
+#                     chunk = event["data"]["chunk"]
+#                     # print(chunk.content, end="|", flush=True)
+#                     if isinstance(chunk, AIMessageChunk):
+#                         # print(chunk)
+#                         match = re.search(r"content='([^']+)'", str(chunk))
+#                         if match:
+#                             content = match.group(1)
+#                             # content = content.replace('\n', '<br>')
+#                             # content = content.replace('.\n\n', '.<br><br>')
+#                             yield f"data: {content}\n\n"  # Format for SSE
+
+#                     else:
+#                         yield "data: Invalid chunk type\n\n"
+#         except Exception as e:
+#             yield f"data: Error in query_bot: {str(e)}\n\n"
+#         finally:
+#         # Send the end marker when the stream finishes
+#             if sources:
+#                 # sources = prioritize_sources(question, sources)
+#                 sources = mybot.rag_tool.retrieve_from_sources(
+#                     query=question,
+#                     source_links=sources
+#                 )
+
+#                 print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+#                 print("QUESTION", question)
+#                 print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+#                 print("SOURCES", sources)
+#                 print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+#                 print("SIMILAR QUESTIONS", similar_questions)
+
+#                 yield f"data: {json.dumps({'sources': sources})}\n\n"
+                
+#             if similar_questions:
+#                 yield f"data: {json.dumps({'similar_questions': similar_questions})}\n\n"
+#             yield "data: [end]\n\n"
+
+#     return StreamingResponse(
+#         stream_chunks(),
+#         media_type="text/event-stream",
+#         headers={
+#             "Cache-Control": "no-cache",
+#             "Connection": "keep-alive",
+#         }
+#     )
+
 async def stream_query_bot(question: str, thread_id: str):
     if not question or not thread_id:
         raise HTTPException(status_code=400, detail="Missing required parameters.")
@@ -51,103 +168,70 @@ async def stream_query_bot(question: str, thread_id: str):
     async def stream_chunks():
         sources = []
         similar_questions = []
-        try:
-            async for event in workflow.astream_events(input_data, config={"configurable": {"thread_id": thread_id}}, version="v2"):
-                # print(event["event"])
 
-                # if event["event"]=="on_chat_model_end":
-                #     # print(event["data"])
-                #     pass
-                # if event["event"] == "on_chain_end" and event["name"] == "agent":
-                #     output = event["data"].get("output", {})
-                #     if isinstance(output, dict):
-                #         similar_questions = output.get("similar_questions", [])
-                
+        try:
+            async for event in workflow.astream_events(
+                input_data,
+                config={"configurable": {"thread_id": thread_id}},
+                version="v2"
+            ):
+
+                # ==========================================
+                # 1️⃣ Real-time token streaming
+                # ==========================================
+                if (
+                    event["event"] == "on_chat_model_stream"
+                    and event["name"] == "ChatOpenAI"
+                    and "final" in event.get("tags", [])
+                ):
+                    chunk = event["data"]["chunk"]
+
+                    if isinstance(chunk, AIMessageChunk):
+                        if chunk.content:
+                            yield f"data: {chunk.content}\n\n"
+
+
+                # ==========================================
+                # 2️⃣ Capture similar questions ONLY
+                # (DO NOT stream response again here)
+                # ==========================================
                 if event["event"] == "on_chain_end" and event["name"] == "agent":
                     output = event["data"].get("output", {})
-
                     if isinstance(output, dict):
                         similar_questions = output.get("similar_questions", [])
 
-                        messages = output.get("messages", [])
-                        if messages:
-                            final_message = messages[-1].content
 
-                            # ✅ Apply formatting here
-                            formatted_message = final_message.replace("\n•", "\n\n•", 1)
-
-                            print("Final Response with Hyperlinked Bold Words:", formatted_message)
-
-                            # 🔥 Stream character-by-character
-                            # for char in formatted_message:
-                            #     yield f"data: {char}\n\n"
-                            for word in formatted_message.split(" "):
-                                yield f"data: {word} "
-                                yield "\n\n"
-
-
-
-                # if event["event"] == "on_chat_model_end":
-                #     output = event["data"].get("output", {})
-
-                #     if isinstance(output, dict):
-                #         similar_questions = output.get("similar_questions", [])
-
-
-                if event["event"]=="on_retriever_end":
-                    print("*************************************************************************")
-                    # print(event["data"])  # Debug print to check the data structure
-
-                    # Extract sources from the "output" field
+                # ==========================================
+                # 3️⃣ Capture retriever sources
+                # ==========================================
+                if event["event"] == "on_retriever_end":
                     output = event["data"].get("output", [])
-                    if isinstance(output, list):  # Ensure the output is a list
+                    if isinstance(output, list):
                         sources.extend(
-                            [doc.metadata.get("source") for doc in output if doc.metadata.get("source")]
-                        )  # Print the extracted sources
-                       
+                            [
+                                doc.metadata.get("source")
+                                for doc in output
+                                if doc.metadata.get("source")
+                            ]
+                        )
 
-                # if event["event"] == "on_chat_model_stream":
-                if (
-                        event["event"] == "on_chat_model_stream"
-                        and event["name"] == "ChatOpenAI"
-                        and "final" in event["tags"]
-                    ):
-
-                    chunk = event["data"]["chunk"]
-                    # print(chunk.content, end="|", flush=True)
-                    if isinstance(chunk, AIMessageChunk):
-                        # print(chunk)
-                        match = re.search(r"content='([^']+)'", str(chunk))
-                        if match:
-                            content = match.group(1)
-                            # content = content.replace('\n', '<br>')
-                            # content = content.replace('.\n\n', '.<br><br>')
-                            yield f"data: {content}\n\n"  # Format for SSE
-
-                    else:
-                        yield "data: Invalid chunk type\n\n"
         except Exception as e:
             yield f"data: Error in query_bot: {str(e)}\n\n"
+
         finally:
-        # Send the end marker when the stream finishes
+            # ==========================================
+            # 4️⃣ Send final metadata (NOT response text)
+            # ==========================================
             if sources:
-                # sources = prioritize_sources(question, sources)
                 sources = mybot.rag_tool.retrieve_from_sources(
                     query=question,
                     source_links=sources
                 )
-
-                print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-                print("QUESTION", question)
-                print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-                print("SOURCES", sources)
-                print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-                print("SIMILAR QUESTIONS", similar_questions)
-
                 yield f"data: {json.dumps({'sources': sources})}\n\n"
-                
+
             if similar_questions:
                 yield f"data: {json.dumps({'similar_questions': similar_questions})}\n\n"
+
             yield "data: [end]\n\n"
 
     return StreamingResponse(
@@ -158,6 +242,7 @@ async def stream_query_bot(question: str, thread_id: str):
             "Connection": "keep-alive",
         }
     )
+
 
 # @app.get("/stream_query")
 # async def stream_query_bot(question: str, thread_id: str):
