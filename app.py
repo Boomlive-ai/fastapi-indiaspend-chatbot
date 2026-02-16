@@ -184,11 +184,26 @@ async def stream_query_bot(question: str, thread_id: str):
                     and event["name"] == "ChatOpenAI"
                     and "final" in event.get("tags", [])
                 ):
-                    chunk = event["data"]["chunk"]
+                #     chunk = event["data"]["chunk"]
 
+                #     if isinstance(chunk, AIMessageChunk):
+                #         if chunk.content:
+                #             yield f"data: {chunk.content}\n\n"
+                    chunk = event["data"]["chunk"]
+                    # print(chunk.content, end="|", flush=True)
                     if isinstance(chunk, AIMessageChunk):
-                        if chunk.content:
-                            yield f"data: {chunk.content}\n\n"
+                        # print(chunk)
+                        match = re.search(r"content='([^']+)'", str(chunk))
+                        if match:
+                            content = match.group(1)
+                            content = content.replace('\n', '<br>')
+                            content = content.replace('.\n\n', '.<br><br>')
+                            yield f"data: {content}\n\n"  # Format for SSE
+
+                    else:
+                        yield "data: Invalid chunk type\n\n"
+                
+                
 
 
                 # ==========================================
