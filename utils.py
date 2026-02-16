@@ -4,7 +4,8 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 # Import necessary libraries
 import nltk
-print("NLTK PATH:", nltk.data.path)
+import nltk
+nltk.data.path.append("/usr/local/nltk_data")
 from nltk.corpus import wordnet
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
@@ -1031,78 +1032,125 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
 
-async def preprocess_documents(docs):
-    """
-    Comprehensive preprocessing of documents before storing them in Pinecone.
+# async def preprocess_documents(docs):
+#     """
+#     Comprehensive preprocessing of documents before storing them in Pinecone.
     
-    Steps include:
-    - Text cleaning (whitespace normalization, special character removal)
-    - Stopword removal
-    - Lemmatization (converting words to their base form)
-    - Additional metadata
+#     Steps include:
+#     - Text cleaning (whitespace normalization, special character removal)
+#     - Stopword removal
+#     - Lemmatization (converting words to their base form)
+#     - Additional metadata
     
-    Args:
-        docs (list): List of Document objects to preprocess
+#     Args:
+#         docs (list): List of Document objects to preprocess
         
-    Returns:
-        list: List of preprocessed Document objects
-    """
-    # Download required NLTK packages if not already downloaded
-    try:
-        nltk.data.find('tokenizers/punkt')
-        nltk.data.find('corpora/stopwords')
-        # nltk.data.find('corpora/wordnet')
-        wordnet.ensure_loaded()
-    except LookupError:
-        raise RuntimeError("NLTK wordnet not installed. Please install before running.")
-        # nltk.download('punkt')
-        # nltk.download('stopwords')
-        # nltk.download('wordnet')
+#     Returns:
+#         list: List of preprocessed Document objects
+#     """
+#     # Download required NLTK packages if not already downloaded
+#     # try:
+#     #     nltk.data.find('tokenizers/punkt')
+#     #     nltk.data.find('corpora/stopwords')
+#     #     # nltk.data.find('corpora/wordnet')
+#     #     wordnet.ensure_loaded()
+#     # except LookupError:
+#     #     raise RuntimeError("NLTK wordnet not installed. Please install before running.")
+#     #     # nltk.download('punkt')
+#     #     # nltk.download('stopwords')
+#     #     # nltk.download('wordnet')
     
-    # Initialize lemmatizer and stopwords
+#     nltk.data.path.append("/usr/local/nltk_data")
+
+    
+#     # Initialize lemmatizer and stopwords
+#     lemmatizer = WordNetLemmatizer()
+#     stop_words = set(stopwords.words('english'))
+    
+#     preprocessed_docs = []
+    
+#     for doc in docs:
+#         # Extract content from the document
+#         content = doc.page_content
+#         metadata = doc.metadata.copy()  # Create a copy to avoid modifying the original
+        
+#         # 1. Basic cleaning
+#         # Remove URLs
+#         content = re.sub(r'https?://\S+|www\.\S+', '', content)
+#         # Remove HTML tags
+#         content = re.sub(r'<.*?>', '', content)
+#         # Remove special characters and numbers (keep spaces and word characters)
+#         content = re.sub(r'[^a-zA-Z\s]', '', content)
+#         # Normalize whitespace
+#         content = ' '.join(content.split())
+        
+#         # 2. Tokenize the text
+#         tokens = word_tokenize(content.lower())
+        
+#         # 3. Remove stopwords and lemmatize
+#         filtered_tokens = []
+#         for token in tokens:
+#             if token not in stop_words:
+#                 # Lemmatize the token (e.g., "richest" -> "rich")
+#                 lemmatized = lemmatizer.lemmatize(token)
+#                 filtered_tokens.append(lemmatized)
+        
+#         # 4. Reconstruct the text
+#         processed_content = ' '.join(filtered_tokens)
+        
+#         # 5. Add preprocessing metadata
+#         metadata["preprocessed"] = True
+#         metadata["processed_date"] = datetime.now().isoformat()
+#         metadata["original_length"] = len(content)
+#         metadata["processed_length"] = len(processed_content)
+        
+#         # Create a new document with the preprocessed content
+#         preprocessed_doc = Document(page_content=processed_content, metadata=metadata)
+#         preprocessed_docs.append(preprocessed_doc)
+    
+#     print(f"Preprocessed {len(preprocessed_docs)} document chunks (removed stopwords, applied lemmatization)")
+#     return preprocessed_docs
+
+async def preprocess_documents(docs):
+
     lemmatizer = WordNetLemmatizer()
     stop_words = set(stopwords.words('english'))
-    
+
     preprocessed_docs = []
-    
+
     for doc in docs:
-        # Extract content from the document
-        content = doc.page_content
-        metadata = doc.metadata.copy()  # Create a copy to avoid modifying the original
-        
-        # 1. Basic cleaning
-        # Remove URLs
-        content = re.sub(r'https?://\S+|www\.\S+', '', content)
-        # Remove HTML tags
+        original_text = doc.page_content
+        metadata = doc.metadata.copy()
+
+        # Basic cleaning
+        content = re.sub(r'https?://\S+|www\.\S+', '', original_text)
         content = re.sub(r'<.*?>', '', content)
-        # Remove special characters and numbers (keep spaces and word characters)
         content = re.sub(r'[^a-zA-Z\s]', '', content)
-        # Normalize whitespace
         content = ' '.join(content.split())
-        
-        # 2. Tokenize the text
+
+        # Tokenization
         tokens = word_tokenize(content.lower())
-        
-        # 3. Remove stopwords and lemmatize
-        filtered_tokens = []
-        for token in tokens:
-            if token not in stop_words:
-                # Lemmatize the token (e.g., "richest" -> "rich")
-                lemmatized = lemmatizer.lemmatize(token)
-                filtered_tokens.append(lemmatized)
-        
-        # 4. Reconstruct the text
+
+        # Stopword removal + lemmatization
+        filtered_tokens = [
+            lemmatizer.lemmatize(token)
+            for token in tokens
+            if token not in stop_words
+        ]
+
         processed_content = ' '.join(filtered_tokens)
-        
-        # 5. Add preprocessing metadata
-        metadata["preprocessed"] = True
-        metadata["processed_date"] = datetime.now().isoformat()
-        metadata["original_length"] = len(content)
-        metadata["processed_length"] = len(processed_content)
-        
-        # Create a new document with the preprocessed content
-        preprocessed_doc = Document(page_content=processed_content, metadata=metadata)
-        preprocessed_docs.append(preprocessed_doc)
-    
-    print(f"Preprocessed {len(preprocessed_docs)} document chunks (removed stopwords, applied lemmatization)")
+
+        metadata.update({
+            "preprocessed": True,
+            "processed_date": datetime.now().isoformat(),
+            "original_length": len(original_text),
+            "processed_length": len(processed_content),
+        })
+
+        preprocessed_docs.append(
+            Document(page_content=processed_content, metadata=metadata)
+        )
+
+    print(f"Preprocessed {len(preprocessed_docs)} document chunks")
+
     return preprocessed_docs
