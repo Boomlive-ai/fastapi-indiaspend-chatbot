@@ -63,16 +63,27 @@ async def store_docs_in_qdrant(docs, collection_name="india-spend"):
     points = []
 
     for doc, vector in zip(docs, vectors):
+        # points.append(
+        #     PointStruct(
+        #         id=str(uuid.uuid4()),
+        #         vector=vector,
+        #         payload={
+        #             "text": doc.page_content,
+        #             **doc.metadata
+        #         }
+        #     )
+        # )
         points.append(
             PointStruct(
                 id=str(uuid.uuid4()),
                 vector=vector,
                 payload={
-                    "text": doc.page_content,
-                    **doc.metadata
+                    "page_content": doc.page_content,  # 🔥 change this
+                    "metadata": doc.metadata           # 🔥 and wrap metadata
                 }
             )
         )
+
 
     client.upsert(
         collection_name=collection_name,
