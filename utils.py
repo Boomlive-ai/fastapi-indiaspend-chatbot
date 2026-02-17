@@ -233,7 +233,7 @@ import requests
 from bs4 import BeautifulSoup
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
-from langchain_pinecone import Pinecone
+# from langchain_pinecone import Pinecone
 from langchain_openai import OpenAIEmbeddings
 
 async def store_daily_articles():
@@ -839,14 +839,14 @@ async def fetch_docs_custom_range(articles):
 
 
 
-async def store_docs_in_pinecone(docs, index_name, urls):
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-    print(f"Storing {len(docs)} document chunks to Pinecone index '{index_name}'...")
-    pine_vs = Pinecone.from_documents(documents = docs, embedding = embeddings, index_name=index_name)
-    print(f"Added {len(docs)} Articles chunks in the pinecone")
-    await add_urls_to_database(json.dumps(urls))
-    print(f"Successfully stored documents. Associated URLs: {urls}")
-    return pine_vs
+# async def store_docs_in_pinecone(docs, index_name, urls):
+#     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+#     print(f"Storing {len(docs)} document chunks to Pinecone index '{index_name}'...")
+#     pine_vs = Pinecone.from_documents(documents = docs, embedding = embeddings, index_name=index_name)
+#     print(f"Added {len(docs)} Articles chunks in the pinecone")
+#     await add_urls_to_database(json.dumps(urls))
+#     print(f"Successfully stored documents. Associated URLs: {urls}")
+#     return pine_vs
 
 
 
@@ -888,62 +888,62 @@ async def add_urls_to_database(urls):
     
 
 #######################################################################Developers FUcntionss####################################################################################
-async def process_and_upload_single_url(url, index_name="india-spend"):
-    """
-    Process a single URL: fetch content, convert to document, preprocess, and upload to Pinecone.
+# async def process_and_upload_single_url(url, index_name="india-spend"):
+#     """
+#     Process a single URL: fetch content, convert to document, preprocess, and upload to Pinecone.
     
-    Args:
-        url (str): The URL of the article to process and upload
-        index_name (str): Name of the Pinecone index to use (default: "india-spend")
+#     Args:
+#         url (str): The URL of the article to process and upload
+#         index_name (str): Name of the Pinecone index to use (default: "india-spend")
         
-    Returns:
-        bool: True if successful, False otherwise
-    """
-    try:
-        print(f"Processing URL: {url}")
+#     Returns:
+#         bool: True if successful, False otherwise
+#     """
+#     try:
+#         print(f"Processing URL: {url}")
         
-        # 1. Fetch content from the URL
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
+#         # 1. Fetch content from the URL
+#         response = requests.get(url, timeout=10)
+#         response.raise_for_status()
         
-        # Check if it's HTML content
-        if 'text/html' not in response.headers.get('Content-Type', ''):
-            print(f"Skipped non-HTML content at {url}")
-            return False
+#         # Check if it's HTML content
+#         if 'text/html' not in response.headers.get('Content-Type', ''):
+#             print(f"Skipped non-HTML content at {url}")
+#             return False
             
-        # 2. Extract text using BeautifulSoup
-        soup = BeautifulSoup(response.content, 'html.parser')
-        text = ' '.join([p.get_text() for p in soup.find_all(['p', 'h1', 'h2', 'h3'])])
+#         # 2. Extract text using BeautifulSoup
+#         soup = BeautifulSoup(response.content, 'html.parser')
+#         text = ' '.join([p.get_text() for p in soup.find_all(['p', 'h1', 'h2', 'h3'])])
         
-        # 3. Create document
-        document = Document(page_content=text, metadata={"source": url})
+#         # 3. Create document
+#         document = Document(page_content=text, metadata={"source": url})
         
-        # 4. Split into chunks
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-        doc_chunks = text_splitter.split_documents([document])
+#         # 4. Split into chunks
+#         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+#         doc_chunks = text_splitter.split_documents([document])
         
-        # 5. Preprocess document chunks
-        preprocessed_docs = await preprocess_documents(doc_chunks)
+#         # 5. Preprocess document chunks
+#         preprocessed_docs = await preprocess_documents(doc_chunks)
         
-        # 6. Upload to Pinecone
-        embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-        print(f"Storing {len(preprocessed_docs)} document chunks to Pinecone index '{index_name}'...")
+#         # 6. Upload to Pinecone
+#         embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+#         print(f"Storing {len(preprocessed_docs)} document chunks to Pinecone index '{index_name}'...")
         
-        pine_vs = Pinecone.from_documents(
-            documents=preprocessed_docs, 
-            embedding=embeddings, 
-            index_name=index_name
-        )
+#         pine_vs = Pinecone.from_documents(
+#             documents=preprocessed_docs, 
+#             embedding=embeddings, 
+#             index_name=index_name
+#         )
         
-        # 7. Add URL to database
-        await add_urls_to_database(json.dumps([url]))
+#         # 7. Add URL to database
+#         await add_urls_to_database(json.dumps([url]))
         
-        print(f"Successfully processed and uploaded content from {url}")
-        return True
+#         print(f"Successfully processed and uploaded content from {url}")
+#         return True
         
-    except Exception as e:
-        print(f"Error processing URL {url}: {str(e)}")
-        return False
+#     except Exception as e:
+#         print(f"Error processing URL {url}: {str(e)}")
+#         return False
 
 
 
@@ -958,19 +958,19 @@ def preprocess_query(query_text):
         str: Preprocessed query text
     """
     # Download required NLTK packages if not already downloaded
-    try:
+    # try:
         
-        nltk.data.find('tokenizers/punkt')
-        nltk.data.find('corpora/stopwords')
-        nltk.data.find('corpora/wordnet')
-        # Make sure to download these resources first
+    #     nltk.data.find('tokenizers/punkt')
+    #     nltk.data.find('corpora/stopwords')
+    #     nltk.data.find('corpora/wordnet')
+    #     # Make sure to download these resources first
         
-        # nltk.download('punkt')
-        # nltk.download('punkt_tab')  # though this might not exist as a standard resource
-        # nltk.download('stopwords')
-        # nltk.download('wordnet')
-    except Exception as e:
-        print(f"Error downloading NLTK resources: {str(e)}")
+    #     # nltk.download('punkt')
+    #     # nltk.download('punkt_tab')  # though this might not exist as a standard resource
+    #     # nltk.download('stopwords')
+    #     # nltk.download('wordnet')
+    # except Exception as e:
+    #     print(f"Error downloading NLTK resources: {str(e)}")
     
     # Initialize lemmatizer and stopwords
     lemmatizer = WordNetLemmatizer()
@@ -1002,33 +1002,109 @@ def preprocess_query(query_text):
     
     return processed_query
 
-async def query_pinecone(query_text, index_name="india-spend", top_k=5):
-    """
-    Query the Pinecone index with preprocessing.
+# async def query_pinecone(query_text, index_name="india-spend", top_k=5):
+#     """
+#     Query the Pinecone index with preprocessing.
     
-    Args:
-        query_text (str): The raw query text
-        index_name (str): Name of the Pinecone index to use
-        top_k (int): Number of results to return
+#     Args:
+#         query_text (str): The raw query text
+#         index_name (str): Name of the Pinecone index to use
+#         top_k (int): Number of results to return
         
-    Returns:
-        list: List of document results from Pinecone
-    """
+#     Returns:
+#         list: List of document results from Pinecone
+#     """
 
 
-    # Preprocess the query
+#     # Preprocess the query
+#     processed_query = preprocess_query(query_text)
+    
+#     # Generate embeddings using the same model as for documents
+#     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    
+#     # Connect to Pinecone
+#     pine = Pinecone.from_existing_index(index_name=index_name, embedding=embeddings)
+    
+#     # Query the index
+#     results = pine.similarity_search(processed_query, k=top_k)
+    
+#     return results
+
+# async def query_qdrant(query_text, collection_name="india-spend", top_k=5):
+#     """
+#     Query the Qdrant collection with preprocessing.
+    
+#     Args:
+#         query_text (str): The raw query text
+#         collection_name (str): Name of the Qdrant collection to use
+#         top_k (int): Number of results to return
+        
+#     Returns:
+#         list: List of document-like results from Qdrant (compatible with Pinecone format)
+#     """
+#     # Preprocess the query
+#     processed_query = preprocess_query(query_text)
+    
+#     # Generate embeddings using the same model as for documents
+#     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
+    
+#     # Get the query embedding
+#     query_vector = embeddings.embed_query(processed_query)
+    
+#     # Connect to Qdrant
+#     client = get_qdrant_client()
+    
+#     # Query the collection
+#     search_results = client.search(
+#         collection_name=collection_name,
+#         query_vector=query_vector,
+#         limit=top_k
+#     )
+    
+#     # Convert Qdrant results to a format similar to Pinecone/LangChain Document objects
+#     # This makes it compatible with your existing code that expects Document-like objects
+#     from langchain.schema import Document
+    
+#     results = []
+#     for result in search_results:
+#         # Extract text and metadata from payload
+#         text = result.payload.get("text", "")
+#         metadata = {k: v for k, v in result.payload.items() if k != "text"}
+        
+#         # Add score to metadata
+#         metadata["score"] = result.score
+        
+#         # Create Document object
+#         doc = Document(page_content=text, metadata=metadata)
+#         results.append(doc)
+    
+#     return results
+
+async def query_qdrant(query_text, collection_name="india-spend", top_k=5):
+    client = get_qdrant_client()
+
     processed_query = preprocess_query(query_text)
-    
-    # Generate embeddings using the same model as for documents
+
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-    
-    # Connect to Pinecone
-    pine = Pinecone.from_existing_index(index_name=index_name, embedding=embeddings)
-    
-    # Query the index
-    results = pine.similarity_search(processed_query, k=top_k)
-    
-    return results
+    query_vector = embeddings.embed_query(processed_query)
+
+    search_results = client.search_points(
+        collection_name=collection_name,
+        query=query_vector,
+        limit=top_k
+    )
+
+    documents = []
+
+    for result in search_results:
+        documents.append(
+            Document(
+                page_content=result.payload.get("page_content", ""),
+                metadata=result.payload
+            )
+        )
+
+    return documents
 
 
 #######################################################################Developers FUcntionss####################################################################################

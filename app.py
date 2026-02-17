@@ -192,7 +192,7 @@ async def stream_query_bot(question: str, thread_id: str):
                     chunk = event["data"]["chunk"]
                     # print(chunk.content, end="|", flush=True)
                     if isinstance(chunk, AIMessageChunk):
-                        # print(chunk)
+                        # print(chunk)w
                         match = re.search(r"content='([^']+)'", str(chunk))
                         if match:
                             content = match.group(1)
@@ -433,7 +433,7 @@ async def documentation():
 ###########################################################################DEVELOPERS ROUTES#############################################################################
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
-from utils import process_and_upload_single_url, query_pinecone
+# from utils import query_pinecone
 class UrlItem(BaseModel):
     url: str
 

@@ -1,7 +1,8 @@
 from typing import Literal
 from langchain_openai import ChatOpenAI
 from langchain_openai import OpenAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
+from langchain_qdrant import QdrantVectorStore
+from qdrant_client import QdrantClient
 from langchain.chains.retrieval_qa.base import RetrievalQA
 from langchain_core.tools import tool, StructuredTool
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -11,7 +12,7 @@ from langgraph.prebuilt import ToolNode
 from pydantic import BaseModel, Field
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from dotenv import load_dotenv
-from utils import preprocess_query
+from utils import preprocess_query, get_qdrant_client  # Import your Qdrant client
 load_dotenv()
 from datetime import datetime
 from sklearn.metrics.pairwise import cosine_similarity
@@ -25,9 +26,18 @@ class RAGQuery(BaseModel):
 class RAGTool:
     def __init__(self):
         self.embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
-        self.index_name = "india-spend"
-        self.vectorstore = PineconeVectorStore(
-            index_name=self.index_name,
+        # self.index_name = "india-spend"
+        # self.vectorstore = PineconeVectorStore(
+        #     index_name=self.index_name,
+        #     embedding=self.embeddings
+        # )
+        # Initialize Qdrant client from utils
+        self.qdrant_client = get_qdrant_client()
+        
+        # Initialize Qdrant vector store with LangChain
+        self.vectorstore = QdrantVectorStore(
+            client=self.qdrant_client,
+            collection_name="india-spend",
             embedding=self.embeddings
         )
         self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0, streaming=False)
@@ -52,6 +62,7 @@ class RAGTool:
             content = doc.page_content.lower()
             print("Reranking Doc Content:", content[:100])  # Print first 100 chars
             title = doc.metadata.get("title", "").lower()
+            doc.metadata.get("date_news")
             print("Reranking Doc Title:", title)
 
             for term in query_terms:
@@ -97,6 +108,12 @@ class RAGTool:
     def retrieve(self, query: RAGQuery) -> dict:
         # Step 1: Initial semantic retrieval
         similar_docs = self.retriever.get_relevant_documents(query.query)
+        print("Initial Retrieved Docs:", [doc.metadata.get("source") for doc in similar_docs])
+        for doc in similar_docs:
+            print("PAGE CONTENT:", doc.page_content[:200])
+            print("METADATA:", doc.metadata)
+            print("-" * 50)
+
 
         # Step 2: Re-rank documents for accuracy
         reranked_docs = self.rerank_documents(similar_docs, query.query)
@@ -656,6 +673,21 @@ class Chatbot:
             # sources = rag_result['sources'][:5]  # Keep only top 5 sources
             sources = rag_result['sources'][:5]
             retrieved_docs = rag_result.get("docs", [])   # 👈 ADD THIS
+            
+            # ✅ Extract date_news from best document (first reranked doc)
+            date_news = None
+            if retrieved_docs:
+                raw_date = retrieved_docs[0].metadata.get("date_news")
+                if raw_date:
+                    try:
+                        # convert "2026-02-16 00:30:15.0" → "February 16, 2026"
+                        date_news = datetime.strptime(
+                            raw_date, "%Y-%m-%d %H:%M:%S.%f"
+                        ).strftime("%B %d, %Y")
+
+                    except Exception:
+                        # fallback if format slightly different
+                        date_news = raw_date.split(" ")[0]
 
 
             sources = sources[:5]
@@ -776,33 +808,71 @@ class Chatbot:
             # ===============================
             # STEP 4: Final formatting pass
             # ===============================
+            # final_prompt = f"""
+            # You are IndiaSpend AI.
+
+            # You are given an article draft and a list of bold phrases with their URLs.
+
+            # TASK:
+            # - Wherever a bold phrase appears in the text AND it exists in the mapping,
+            # convert it to a markdown hyperlink:
+            # **phrase** → **[phrase](URL)**
+
+            # RULES (STRICT):
+            # - Do NOT change wording
+            # - Do NOT add or remove bold phrases
+            # - Do NOT invent links
+            # - If a bold phrase has no URL, leave it unchanged
+            # - Preserve formatting exactly
+            
+            # Formatting Rules (VERY IMPORTANT):
+
+            # Formatting Instructions:
+            # - Use ONLY the provided source links.
+            # - Attach a source link to a bold term only if it directly supports that term.
+            # - Each source URL can be used only ONCE in the entire response.
+            # - If a source has already been used, do not hyperlink it again.
+            # - Do not invent, modify, or hallucinate any links.
+
+
+
+            # BOLD PHRASE → URL MAP:
+            # {bold_url_block}
+
+            # TEXT:
+            # {response.content}
+
+            # Return ONLY the updated text.
+            # """
+            # Prepare disclaimer
+            disclaimer_text = ""
+            if date_news:
+                disclaimer_text = f"Disclaimer: This news was originally published on {date_news}\n\n"
+
             final_prompt = f"""
             You are IndiaSpend AI.
 
             You are given an article draft and a list of bold phrases with their URLs.
 
+            IMPORTANT:
+            Add this line at the before the read more of the response:
+
+            *{disclaimer_text.strip()}*
+
             TASK:
             - Wherever a bold phrase appears in the text AND it exists in the mapping,
             convert it to a markdown hyperlink:
             **phrase** → **[phrase](URL)**
+            
+            IMPORTANT:
+            DO NOT wrap the response in code blocks.
+            DO NOT use ``` or ```markdown.
 
             RULES (STRICT):
             - Do NOT change wording
             - Do NOT add or remove bold phrases
             - Do NOT invent links
-            - If a bold phrase has no URL, leave it unchanged
             - Preserve formatting exactly
-            
-            Formatting Rules (VERY IMPORTANT):
-
-            Formatting Instructions:
-            - Use ONLY the provided source links.
-            - Attach a source link to a bold term only if it directly supports that term.
-            - Each source URL can be used only ONCE in the entire response.
-            - If a source has already been used, do not hyperlink it again.
-            - Do not invent, modify, or hallucinate any links.
-
-
 
             BOLD PHRASE → URL MAP:
             {bold_url_block}
@@ -812,6 +882,7 @@ class Chatbot:
 
             Return ONLY the updated text.
             """
+
             
             # final_response = self.llm.invoke(
             #     [HumanMessage(content=final_prompt)]
@@ -833,10 +904,20 @@ class Chatbot:
             #     bold_source_map
             # )
             
-            response_with_sources = final_response.content 
+            # response_with_sources = final_response.content 
             
+            # # Add extra spacing before first bullet
+            # response_with_sources = response_with_sources.replace("\n•", "\n\n•", 1)    
+            response_with_sources = final_response.content 
+
+            # ✅ Add disclaimer at top using metadata date_news
+            if date_news:
+                disclaimer = f"Disclaimer: This news was originally published on {date_news}.\n\n"
+                response_with_sources = disclaimer + response_with_sources
+
             # Add extra spacing before first bullet
-            response_with_sources = response_with_sources.replace("\n•", "\n\n•", 1)         
+            response_with_sources = response_with_sources.replace("\n•", "\n\n•", 1)
+     
             print("Final Response with Hyperlinked Bold Words:", response_with_sources)
             
             # ✅ Generate similar questions based on final answer
@@ -888,7 +969,12 @@ class Chatbot:
         
         # ✅ Extract bold words from non-RAG response too
         # bold_words = extract_bold_words(response.content)
+        
+        print("\n================ FINAL MESSAGE PASSED ================\n")
+        print(response_with_sources)
+        print("\n=====================================================\n")
 
+        
         return {
             "messages": [AIMessage(content=response_with_sources)], 
             "sources": sources,
