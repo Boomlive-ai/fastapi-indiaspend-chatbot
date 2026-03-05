@@ -37,7 +37,7 @@ class RAGTool:
         # Initialize Qdrant vector store with LangChain
         self.vectorstore = QdrantVectorStore(
             client=self.qdrant_client,
-            collection_name="india-spend",
+            collection_name="india-spend-1",
             embedding=self.embeddings
         )
         self.llm = ChatOpenAI(model_name="gpt-4o", temperature=0, streaming=False)
@@ -53,32 +53,95 @@ class RAGTool:
             return_source_documents=True  # Enable source document return
         )
         
+    
+    def title_similarity(self, query: str, title: str) -> float:
+        """
+        Compute embedding cosine similarity between query and title
+        """
+        embeddings = self.embeddings.embed_documents([query, title])
+
+        similarity = cosine_similarity(
+            [embeddings[0]],
+            [embeddings[1]]
+        )[0][0]
+
+        return float(similarity)
+    
+    def filter_by_title_match(self, docs, query, threshold=0.90):
+        """
+        Return documents where title similarity >= threshold
+        """
+        matched_docs = []
+
+        for doc in docs:
+            title = doc.metadata.get("title", "")
+
+            if not title:
+                continue
+
+            sim = self.title_similarity(query, title)
+
+            print(f"Title: {title}")
+            print(f"Similarity: {sim}")
+
+            if sim >= threshold:
+                matched_docs.append(doc)
+
+        return matched_docs
+    
     def rerank_documents(self, docs, query):
         query_terms = query.lower().split()
+        now = datetime.now()
 
         ranked = []
-        for doc in docs:
-            score = 0
-            content = doc.page_content.lower()
-            print("Reranking Doc Content:", content[:100])  # Print first 100 chars
-            title = doc.metadata.get("title", "").lower()
-            doc.metadata.get("date_news")
-            print("Reranking Doc Title:", title)
 
+        for doc in docs:
+            relevance_score = 0
+            content = doc.page_content.lower()
+            title = doc.metadata.get("title", "").lower()
+
+            # -----------------------------
+            # Keyword relevance scoring
+            # -----------------------------
             for term in query_terms:
                 if term in title:
-                    score += 3     # Title match = strong signal
-                    print(f"Title match for term '{term}',title: {title}, score now {score}")
+                    relevance_score += 3
                 if term in content:
-                    score += 1     # Content match = weaker signal
-                    print(f"Content match for term '{term}', score now {score}")
+                    relevance_score += 1
 
-            ranked.append((score, doc))
+            # -----------------------------
+            # Recency scoring
+            # -----------------------------
+            recency_score = 0
+            raw_date = doc.metadata.get("date_news")
 
-        # Sort by score (descending)
+            if raw_date:
+                try:
+                    doc_date = datetime.strptime(raw_date, "%Y-%m-%d %H:%M:%S.%f")
+                except:
+                    try:
+                        doc_date = datetime.strptime(raw_date.split(" ")[0], "%Y-%m-%d")
+                    except:
+                        doc_date = None
+
+                if doc_date:
+                    days_old = (now - doc_date).days
+
+                    if days_old <= 7:
+                        recency_score = 4
+                    elif days_old <= 30:
+                        recency_score = 3
+                    elif days_old <= 180:
+                        recency_score = 2
+                    elif days_old <= 365:
+                        recency_score = 1
+
+            final_score = relevance_score + recency_score
+
+            ranked.append((final_score, doc))
+
         ranked.sort(key=lambda x: x[0], reverse=True)
 
-        # Keep only docs with score > 0
         return [doc for score, doc in ranked if score > 0]
 
 
@@ -105,32 +168,63 @@ class RAGTool:
     #         "sources": source_links
     #     }
     
+    # def retrieve(self, query: RAGQuery) -> dict:
+    #     # Step 1: Initial semantic retrieval
+    #     similar_docs = self.retriever.get_relevant_documents(query.query)
+    #     print("Initial Retrieved Docs:", [doc.metadata.get("source") for doc in similar_docs])
+    #     for doc in similar_docs:
+    #         print("PAGE CONTENT:", doc.page_content[:200])
+    #         print("METADATA:", doc.metadata)
+    #         print("-" * 50)
+
+
+    #     # Step 2: Re-rank documents for accuracy
+    #     reranked_docs = self.rerank_documents(similar_docs, query.query)
+
+    #     # Step 3: Extract sources from reranked docs
+    #     source_links = [
+    #         doc.metadata.get("source", "No source")
+    #         for doc in reranked_docs
+    #     ][:5]
+
+    #     # Step 4: Remove duplicates, preserve order
+    #     source_links = list(dict.fromkeys(source_links))
+    #     print("Reranked Sources:", source_links)    
+
+    #     return {
+    #         "sources": source_links,
+    #         "docs": reranked_docs   # 👈 ADD THIS
+    #     }
+    
     def retrieve(self, query: RAGQuery) -> dict:
-        # Step 1: Initial semantic retrieval
+
+        # Step 1: semantic retrieval
         similar_docs = self.retriever.get_relevant_documents(query.query)
+
         print("Initial Retrieved Docs:", [doc.metadata.get("source") for doc in similar_docs])
-        for doc in similar_docs:
-            print("PAGE CONTENT:", doc.page_content[:200])
-            print("METADATA:", doc.metadata)
-            print("-" * 50)
 
+        # Step 2: Title similarity check (>=90%)
+        title_matched_docs = self.filter_by_title_match(similar_docs, query.query, threshold=0.90)
 
-        # Step 2: Re-rank documents for accuracy
-        reranked_docs = self.rerank_documents(similar_docs, query.query)
+        if title_matched_docs:
+            print("✅ Title matched docs found")
+            reranked_docs = title_matched_docs
 
-        # Step 3: Extract sources from reranked docs
+        else:
+            print("⚠️ No strong title match, using normal reranking")
+            reranked_docs = self.rerank_documents(similar_docs, query.query)
+
+        # Step 3: Extract sources
         source_links = [
             doc.metadata.get("source", "No source")
             for doc in reranked_docs
         ][:5]
 
-        # Step 4: Remove duplicates, preserve order
         source_links = list(dict.fromkeys(source_links))
-        print("Reranked Sources:", source_links)    
 
         return {
             "sources": source_links,
-            "docs": reranked_docs   # 👈 ADD THIS
+            "docs": reranked_docs
         }
 
     
@@ -362,27 +456,77 @@ import re
     
 #     return unique_bold
 
+# def attach_sources_to_bold_text(response_text: str, bold_source_map: dict) -> str:
+#     """
+#     Attaches source links below bold phrases if available.
+#     """
+#     updated_text = response_text
+
+#     for phrase, data in bold_source_map.items():
+#         source = data.get("source")
+#         if not source:
+#             continue
+
+#         bold_phrase = f"**{phrase}**"
+#         linked_phrase = f"**[{phrase}]({source})**"
+#         # linked_phrase = f"**[{phrase}]**({source})"
+
+
+#         # Avoid double-linking
+#         if linked_phrase in updated_text:
+#             continue
+
+#         updated_text = updated_text.replace(bold_phrase, linked_phrase, 1)
+
+#     return updated_text
+
+# def attach_sources_to_bold_text(response_text: str, bold_source_map: dict) -> str:
+#     """
+#     Attach hyperlinks to bold phrases but ensure each URL
+#     is used only once in the response.
+#     """
+
+#     updated_text = response_text
+#     used_urls = set()
+
+#     for phrase, data in bold_source_map.items():
+#         source = data.get("source")
+
+#         if not source:
+#             continue
+
+#         # Skip if this URL was already used
+#         if source in used_urls:
+#             continue
+
+#         bold_phrase = f"**{phrase}**"
+#         linked_phrase = f"**[{phrase}]({source})**"
+
+#         if bold_phrase in updated_text:
+#             updated_text = updated_text.replace(bold_phrase, linked_phrase, 1)
+#             used_urls.add(source)
+
+#     return updated_text
+
 def attach_sources_to_bold_text(response_text: str, bold_source_map: dict) -> str:
-    """
-    Attaches source links below bold phrases if available.
-    """
     updated_text = response_text
+    used_urls = set()
 
     for phrase, data in bold_source_map.items():
         source = data.get("source")
+
         if not source:
+            continue
+
+        if source in used_urls:
             continue
 
         bold_phrase = f"**{phrase}**"
         linked_phrase = f"**[{phrase}]({source})**"
-        # linked_phrase = f"**[{phrase}]**({source})"
 
-
-        # Avoid double-linking
-        if linked_phrase in updated_text:
-            continue
-
-        updated_text = updated_text.replace(bold_phrase, linked_phrase, 1)
+        if bold_phrase in updated_text:
+            updated_text = updated_text.replace(bold_phrase, linked_phrase, 1)
+            used_urls.add(source)
 
     return updated_text
 
@@ -612,17 +756,87 @@ class Chatbot:
         
         return True
     
-    def generate_similar_questions(self, original_query: str, answer: str) -> list[str]:
+    
+    # def generate_similar_questions(self, original_query: str, answer: str) -> list[str]:
+    #     prompt = f"""
+    # You are IndiaSpend AI.
+
+    # Based on the user's question and the answer provided,
+    # generate related follow-up questions that help the reader
+    # explore the topic more deeply.
+
+    # RULES (STRICT):
+    # - Generate exactly 4 questions.
+    # - Questions must be directly related to the topic.
+    # - Do NOT repeat the original question.
+    # - Focus on:
+    # • impact
+    # • causes
+    # • policy or governance
+    # • data, trends, or geography
+    # - Keep questions short and clear.
+    # - Do NOT answer the questions.
+    # - Do NOT include explanations.
+    # - Do NOT use numbering or bullet points.
+    # - Each question must be one sentence.
+
+    # User question:
+    # {original_query}
+
+    # Answer:
+    # {answer}
+
+    # Return only the questions, one per line.
+    # """
+
+    #     response = self.llm_nostream.invoke([HumanMessage(content=prompt)])
+
+    #     questions = [
+    #         q.strip()
+    #         for q in response.content.split("\n")
+    #         if q.strip()
+    #     ]
+
+    #     return questions[:4]
+    
+    def generate_similar_questions(self, original_query: str, answer: str, documents) -> list[str]:
+
+        # Collect article titles
+        titles = []
+        content_snippets = []
+
+        for doc in documents[:3]:  # use top 3 docs
+            title = doc.metadata.get("title", "")
+            titles.append(title)
+
+            snippet = doc.page_content[:400].lower()
+            content_snippets.append(snippet)
+
+        titles_text = "\n".join(titles)
+        content_text = "\n".join(content_snippets)
+
         prompt = f"""
     You are IndiaSpend AI.
 
-    Based on the user's question and the answer provided,
-    generate related follow-up questions that help the reader
-    explore the topic more deeply.
+    Generate follow-up questions that help readers explore the topic deeper.
 
-    RULES (STRICT):
+    TOPIC SIGNALS:
+    Article Titles:
+    {titles_text}
+
+    Article Content:
+    {content_text}
+
+    Original Question:
+    {original_query}
+
+    Answer:
+    {answer}
+
+    STRICT RULES:
     - Generate exactly 4 questions.
-    - Questions must be directly related to the topic.
+    - Questions must be directly related to the article topic.
+    - Use signals from titles and article content.
     - Do NOT repeat the original question.
     - Focus on:
     • impact
@@ -630,16 +844,9 @@ class Chatbot:
     • policy or governance
     • data, trends, or geography
     - Keep questions short and clear.
-    - Do NOT answer the questions.
-    - Do NOT include explanations.
+    - One sentence per question.
     - Do NOT use numbering or bullet points.
-    - Each question must be one sentence.
-
-    User question:
-    {original_query}
-
-    Answer:
-    {answer}
+    - Do NOT include explanations.
 
     Return only the questions, one per line.
     """
@@ -675,18 +882,39 @@ class Chatbot:
             retrieved_docs = rag_result.get("docs", [])   # 👈 ADD THIS
             
             # ✅ Extract date_news from best document (first reranked doc)
+            # date_news = None
+            # if retrieved_docs:
+            #     raw_date = retrieved_docs[0].metadata.get("date_news")
+            #     if raw_date:
+            #         try:
+            #             # convert "2026-02-16 00:30:15.0" → "February 16, 2026"
+            #             date_news = datetime.strptime(
+            #                 raw_date, "%Y-%m-%d %H:%M:%S.%f"
+            #             ).strftime("%B %d, %Y")
+
+            #         except Exception:
+            #             # fallback if format slightly different
+            #             date_news = raw_date.split(" ")[0]
+            
             date_news = None
+            best_source_url = None
+
             if retrieved_docs:
-                raw_date = retrieved_docs[0].metadata.get("date_news")
+                best_doc = retrieved_docs[0]
+                
+                print("\n================ BEST DOCUMENT METADATA ================\n")
+                print(best_doc.metadata)
+                print("\n========================================================\n")
+
+                best_source_url = best_doc.metadata.get("source")
+
+                raw_date = best_doc.metadata.get("date_news")
                 if raw_date:
                     try:
-                        # convert "2026-02-16 00:30:15.0" → "February 16, 2026"
                         date_news = datetime.strptime(
                             raw_date, "%Y-%m-%d %H:%M:%S.%f"
                         ).strftime("%B %d, %Y")
-
                     except Exception:
-                        # fallback if format slightly different
                         date_news = raw_date.split(" ")[0]
 
 
@@ -789,6 +1017,25 @@ class Chatbot:
                 confidence_threshold=0.5,
                 context_threshold=0.5
             )
+            
+            # -------- Remove duplicate URLs --------
+            unique_source_map = {}
+            used_urls = set()
+
+            for phrase, data in bold_source_map.items():
+                url = data.get("source")
+
+                if not url:
+                    continue
+
+                # skip if url already used
+                if url in used_urls:
+                    continue
+
+                unique_source_map[phrase] = data
+                used_urls.add(url)
+
+            bold_source_map = unique_source_map
 
 
             
@@ -846,42 +1093,85 @@ class Chatbot:
             # """
             # Prepare disclaimer
             disclaimer_text = ""
+            print("Metadata date_news:", date_news)
             if date_news:
                 disclaimer_text = f"Disclaimer: This news was originally published on {date_news}\n\n"
 
-            final_prompt = f"""
-            You are IndiaSpend AI.
+            # final_prompt = f"""
+            # You are IndiaSpend AI.
 
-            You are given an article draft and a list of bold phrases with their URLs.
+            # You are given an article draft and a list of bold phrases with their URLs.
 
-            IMPORTANT:
-            Add this line at the before the read more of the response:
+            # IMPORTANT:
+            # Add this line at the before the read more of the response:
 
-            *{disclaimer_text.strip()}*
+            # *{disclaimer_text.strip()}*
 
-            TASK:
-            - Wherever a bold phrase appears in the text AND it exists in the mapping,
-            convert it to a markdown hyperlink:
-            **phrase** → **[phrase](URL)**
+            # TASK:
+            # - Wherever a bold phrase appears in the text AND it exists in the mapping,
+            # convert it to a markdown hyperlink:
+            # **phrase** → **[phrase](URL)**
             
-            IMPORTANT:
-            DO NOT wrap the response in code blocks.
-            DO NOT use ``` or ```markdown.
+            # IMPORTANT:
+            
+            # DO NOT wrap the response in code blocks.
+            # DO NOT use ``` or ```markdown.
 
-            RULES (STRICT):
-            - Do NOT change wording
-            - Do NOT add or remove bold phrases
-            - Do NOT invent links
-            - Preserve formatting exactly
+            # RULES (STRICT):
+            # - Do NOT change wording
+            # - Do NOT add or remove bold phrases
+            # - Do NOT invent links
+            # - Preserve formatting exactly
 
-            BOLD PHRASE → URL MAP:
-            {bold_url_block}
+            # BOLD PHRASE → URL MAP:
+            # {bold_url_block}
 
-            TEXT:
-            {response.content}
+            # TEXT:
+            # {response.content}
 
-            Return ONLY the updated text.
-            """
+            # Return ONLY the updated text.
+            # """
+            
+            final_prompt = f"""
+                You are IndiaSpend AI.
+
+                You are given an article draft and a list of bold phrases with their URLs.
+
+                IMPORTANT TASK:
+                Convert bold phrases into hyperlinks ONLY if the URL has not already been used earlier in the text.
+                
+                IMPORTANT:
+                Add this line at the before the read more of the response:
+
+                *{disclaimer_text.strip()}*
+
+                HYPERLINK FORMAT:
+                **phrase** → **[phrase](URL)**
+
+                CRITICAL RULES (STRICT):
+                1. Each URL can be used ONLY ONE TIME in the entire response.
+                2. If a URL has already been used earlier in the text, DO NOT link it again.
+                3. Leave the bold phrase as **phrase** if its URL was already used.
+                4. Do NOT invent links.
+                5. Do NOT change the wording.
+                6. Do NOT remove or add bold phrases.
+                7. Preserve formatting exactly.
+                8. Do NOT wrap the response in code blocks.
+                9. Do NOT use ``` or ```markdown.
+
+                PROCESS:
+                - Read the text from top to bottom.
+                - When you hyperlink a phrase, mark that URL as used.
+                - If you see another phrase mapped to the same URL later, leave it as plain bold text.
+
+                BOLD PHRASE → URL MAP:
+                {bold_url_block}
+
+                TEXT:
+                {response.content}
+
+                Return ONLY the updated text.
+                """
 
             
             # final_response = self.llm.invoke(
@@ -921,9 +1211,16 @@ class Chatbot:
             print("Final Response with Hyperlinked Bold Words:", response_with_sources)
             
             # ✅ Generate similar questions based on final answer
+            # similar_questions = self.generate_similar_questions(
+            #     original_query=query,
+            #     answer=response_with_sources
+            # )
+            retrieved_docs = rag_result.get("docs", [])
+
             similar_questions = self.generate_similar_questions(
                 original_query=query,
-                answer=response_with_sources
+                answer=response_with_sources,
+                documents=retrieved_docs
             )
 
             print("🔁 Similar Questions:")

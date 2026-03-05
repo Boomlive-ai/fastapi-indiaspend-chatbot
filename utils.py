@@ -35,7 +35,7 @@ def get_qdrant_client():
     )
 
 
-def create_collection_if_not_exists(collection_name="india-spend"):
+def create_collection_if_not_exists(collection_name="india-spend-1"):
     client = get_qdrant_client()
 
     existing = [c.name for c in client.get_collections().collections]
@@ -52,7 +52,7 @@ def create_collection_if_not_exists(collection_name="india-spend"):
 
     return client
 
-async def store_docs_in_qdrant(docs, collection_name="india-spend"):
+async def store_docs_in_qdrant(docs, collection_name="india-spend-1"):
     client = create_collection_if_not_exists(collection_name)
 
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
@@ -244,7 +244,7 @@ async def store_daily_articles():
         list: List of article URLs stored for the current day.
     """
     article_urls = []
-    index_name = "india-spend"
+    index_name = "india-spend-1"
 
     try:
         api_url = f'https://indiaspend.com/dev/h-api/news'
@@ -648,6 +648,7 @@ async def store_articles_custom_range(from_date, to_date):
                     "seo_title": news_item.get("seo_title"),
                     "description": news_item.get("description"),
                     "keywords": news_item.get("keywords"),
+                    "story": news_item.get("story")   # 👈 ADD THIS
                 }
 
                 if article_data["url"]:
@@ -777,62 +778,156 @@ async def filter_urls_custom_range(urls):
 
 #     return preprocessed_docs
 
+# async def fetch_docs_custom_range(articles):
+#     data = []
+#     text_splitter = RecursiveCharacterTextSplitter(
+#         chunk_size=1000,
+#         chunk_overlap=200
+#     )
+
+#     for article in articles:
+#         try:
+#             url = article.get("url")
+#             date_updated = article.get("date_updated")
+#             date_news = article.get("date_news")
+#             seo_title = article.get("seo_title")
+#             description = article.get("description")
+#             keywords = article.get("keywords")
+
+#             if not url:
+#                 continue
+
+#             response = requests.get(url, timeout=10)
+#             response.raise_for_status()
+
+#             # Ensure we only parse HTML
+#             if 'text/html' not in response.headers.get('Content-Type', ''):
+#                 print(f"Skipped non-HTML content at {url}")
+#                 continue
+
+#             soup = BeautifulSoup(response.content, 'html.parser')
+
+#             # Extract text content
+#             text = ' '.join(
+#                 [p.get_text() for p in soup.find_all(['p', 'h1', 'h2', 'h3'])]
+#             )
+
+#             document = Document(
+#                 page_content=text,
+#                 metadata={
+#                     "source": url,
+#                     "seo_title": seo_title,
+#                     "date_updated": date_updated,
+#                     "date_news": date_news,
+#                     "description": description,
+#                     "keywords": keywords
+#                 }
+#             )
+
+#             data.append(document)
+
+#         except requests.exceptions.RequestException as e:
+#             print(f"Failed to fetch {url}: {e}")
+#             continue
+
+#     # Split into chunks
+#     docs = text_splitter.split_documents(data)
+
+#     # Optional preprocessing (if you already have this function)
+#     preprocessed_docs = await preprocess_documents(docs)
+
+#     return preprocessed_docs
+from bs4 import BeautifulSoup
+
+def clean_story_html(story_html):
+    soup = BeautifulSoup(story_html, "html.parser")
+
+    # Remove unwanted tags completely
+    for tag in soup(["script", "style", "iframe", "img"]):
+        tag.decompose()
+
+    # Extract clean text from paragraphs & headings
+    text_blocks = []
+
+    for tag in soup.find_all(["h1", "h2", "h3", "p"]):
+        text = tag.get_text(separator=" ", strip=True)
+        if text:
+            text_blocks.append(text)
+
+    clean_text = "\n\n".join(text_blocks)
+
+    return clean_text
+
+# async def fetch_docs_custom_range(articles):
+#     data = []
+
+#     text_splitter = RecursiveCharacterTextSplitter(
+#         chunk_size=1000,
+#         chunk_overlap=200
+#     )
+
+#     for article in articles:
+
+#         story = article.get("story")
+#         if not story:
+#             continue
+
+#         document = Document(
+#             page_content=story,
+#             metadata={
+#                 "source": article.get("url"),
+#                 "seo_title": article.get("seo_title"),
+#                 "date_updated": article.get("date_updated"),
+#                 "date_news": article.get("date_news"),
+#                 "description": article.get("description"),
+#                 "keywords": article.get("keywords"),
+#                 "content_type": "story"   # 👈 helpful for filtering later
+#             }
+#         )
+
+#         data.append(document)
+
+#     # Split into chunks
+#     docs = text_splitter.split_documents(data)
+
+#     # Preprocess
+#     preprocessed_docs = await preprocess_documents(docs)
+
+#     return preprocessed_docs
+
 async def fetch_docs_custom_range(articles):
+
     data = []
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200
+        chunk_size=800,
+        chunk_overlap=150
     )
 
     for article in articles:
-        try:
-            url = article.get("url")
-            date_updated = article.get("date_updated")
-            date_news = article.get("date_news")
-            seo_title = article.get("seo_title")
-            description = article.get("description")
-            keywords = article.get("keywords")
 
-            if not url:
-                continue
-
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-
-            # Ensure we only parse HTML
-            if 'text/html' not in response.headers.get('Content-Type', ''):
-                print(f"Skipped non-HTML content at {url}")
-                continue
-
-            soup = BeautifulSoup(response.content, 'html.parser')
-
-            # Extract text content
-            text = ' '.join(
-                [p.get_text() for p in soup.find_all(['p', 'h1', 'h2', 'h3'])]
-            )
-
-            document = Document(
-                page_content=text,
-                metadata={
-                    "source": url,
-                    "seo_title": seo_title,
-                    "date_updated": date_updated,
-                    "date_news": date_news,
-                    "description": description,
-                    "keywords": keywords
-                }
-            )
-
-            data.append(document)
-
-        except requests.exceptions.RequestException as e:
-            print(f"Failed to fetch {url}: {e}")
+        story_html = article.get("story")
+        if not story_html:
             continue
 
-    # Split into chunks
-    docs = text_splitter.split_documents(data)
+        # 🔥 Clean HTML
+        clean_story = clean_story_html(story_html)
 
-    # Optional preprocessing (if you already have this function)
+        document = Document(
+            page_content=clean_story,
+            metadata={
+                "source": article.get("url"),
+                "seo_title": article.get("seo_title"),
+                "date_updated": article.get("date_updated"),
+                "date_news": article.get("date_news"),
+                "description": article.get("description"),
+                "keywords": article.get("keywords"),
+                "content_type": "story"
+            }
+        )
+
+        data.append(document)
+
+    docs = text_splitter.split_documents(data)
     preprocessed_docs = await preprocess_documents(docs)
 
     return preprocessed_docs
@@ -1080,7 +1175,7 @@ def preprocess_query(query_text):
     
 #     return results
 
-async def query_qdrant(query_text, collection_name="india-spend", top_k=5):
+async def query_qdrant(query_text, collection_name="india-spend-1", top_k=5):
     client = get_qdrant_client()
 
     processed_query = preprocess_query(query_text)
