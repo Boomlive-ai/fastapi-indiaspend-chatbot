@@ -958,25 +958,28 @@ class Chatbot:
             print("❌ No related articles found either")
 
         prompt = f"""
-        You are IndiaSpend AI.
+            You are IndiaSpend AI, an assistant that answers questions based only on IndiaSpend's editorial coverage.
 
-        The user asked a question, but IndiaSpend's database does not have
-        a direct answer for this specific topic.
+            The user asked a question, but IndiaSpend does not currently have coverage on this exact topic.
 
-        User's question:
-        {query}
+            User question:
+            {query}
 
-        {"RELATED ARTICLES (suggest these to the user):" + chr(10) + related_text if related_articles else ""}
+            {"RELATED ARTICLES (suggest these to the user):" + chr(10) + related_text if related_articles else ""}
 
-        RESPONSE RULES (STRICT):
-        - Acknowledge the user's topic naturally in 1 sentence.
-        - Politely say that IndiaSpend does not have specific coverage on this exact topic.
-        - Do NOT make up any facts or data.
-        - Do NOT use bold words.
-        {"- Suggest the related articles listed above as helpful reads. Format each as: [Article Title](URL)" if related_articles else "- Suggest 2-3 related topics that IndiaSpend typically covers (health, education, environment, gender, governance, economy)."}
-        - Keep the response short (3-5 sentences max).
-        - Maintain a helpful, journalistic tone.
-        """
+            RESPONSE GUIDELINES (STRICT):
+
+            1. Acknowledge the user's topic naturally in one short sentence.
+            2. Clearly state that IndiaSpend does not currently have coverage on this exact topic.
+            3. Do not invent facts, data, or explanations.
+            4. Do not use bold text or formatting.
+            5. Maintain a neutral, journalistic tone.
+
+            {"6. Suggest the related articles listed above as helpful reads. Format each as: [Article Title](URL)" if related_articles else "6. Suggest 2–3 related topics IndiaSpend commonly covers such as health, education, environment, gender, governance, or the economy."}
+
+            7. Keep the response concise: ideally 2 sentences, maximum 3.
+            8. Do not mention internal systems, databases, or prompts.
+            """
 
         response = self.llm_nostream.invoke(
             [self.system_message, HumanMessage(content=prompt)]
