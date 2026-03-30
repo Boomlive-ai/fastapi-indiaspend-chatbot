@@ -168,6 +168,8 @@ async def stream_query_bot(question: str, thread_id: str):
     async def stream_chunks():
         sources = []
         similar_questions = []
+        streamed_final = False  # Track if any "final" tagged tokens were streamed
+        agent_output_message = None  # Capture the final message from agent node
 
         try:
             async for event in workflow.astream_events(
@@ -184,36 +186,31 @@ async def stream_query_bot(question: str, thread_id: str):
                     and event["name"] == "ChatOpenAI"
                     and "final" in event.get("tags", [])
                 ):
-                #     chunk = event["data"]["chunk"]
-
-                #     if isinstance(chunk, AIMessageChunk):
-                #         if chunk.content:
-                #             yield f"data: {chunk.content}\n\n"
                     chunk = event["data"]["chunk"]
-                    # print(chunk.content, end="|", flush=True)
                     if isinstance(chunk, AIMessageChunk):
-                        # print(chunk)w
                         match = re.search(r"content='([^']+)'", str(chunk))
                         if match:
                             content = match.group(1)
                             content = content.replace('\n', '<br>')
                             content = content.replace('.\n\n', '.<br><br>')
-                            yield f"data: {content}\n\n"  # Format for SSE
+                            yield f"data: {content}\n\n"
+                            streamed_final = True
 
                     else:
                         yield "data: Invalid chunk type\n\n"
-                
-                
 
 
                 # ==========================================
-                # 2️⃣ Capture similar questions ONLY
-                # (DO NOT stream response again here)
+                # 2️⃣ Capture agent output (similar questions + fallback message)
                 # ==========================================
                 if event["event"] == "on_chain_end" and event["name"] == "agent":
                     output = event["data"].get("output", {})
                     if isinstance(output, dict):
                         similar_questions = output.get("similar_questions", [])
+                        # Capture the final message for fallback streaming
+                        messages = output.get("messages", [])
+                        if messages:
+                            agent_output_message = messages[-1].content
 
 
                 # ==========================================
@@ -235,17 +232,24 @@ async def stream_query_bot(question: str, thread_id: str):
 
         finally:
             # ==========================================
-            # 4️⃣ Send final metadata (NOT response text)
+            # 4️⃣ If no "final" LLM streaming happened
+            #    (greeting or not-relevant), stream the
+            #    static message word-by-word and skip sources
             # ==========================================
-            if sources:
-                sources = mybot.rag_tool.retrieve_from_sources(
-                    query=question,
-                    source_links=sources
-                )
-                yield f"data: {json.dumps({'sources': sources})}\n\n"
+            if not streamed_final and agent_output_message:
+                for word in agent_output_message.split(" "):
+                    yield f"data: {word} \n\n"
+            else:
+                # Only send sources/similar_questions for actual RAG responses
+                if sources:
+                    sources = mybot.rag_tool.retrieve_from_sources(
+                        query=question,
+                        source_links=sources
+                    )
+                    yield f"data: {json.dumps({'sources': sources})}\n\n"
 
-            if similar_questions:
-                yield f"data: {json.dumps({'similar_questions': similar_questions})}\n\n"
+                if similar_questions:
+                    yield f"data: {json.dumps({'similar_questions': similar_questions})}\n\n"
 
             yield "data: [end]\n\n"
 
