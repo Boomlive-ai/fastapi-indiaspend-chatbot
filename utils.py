@@ -35,7 +35,7 @@ def get_qdrant_client():
     )
 
 
-def create_collection_if_not_exists(collection_name="india-spend-1"):
+def create_collection_if_not_exists(collection_name="india-spend-2"):
     client = get_qdrant_client()
 
     existing = [c.name for c in client.get_collections().collections]
@@ -52,7 +52,7 @@ def create_collection_if_not_exists(collection_name="india-spend-1"):
 
     return client
 
-async def store_docs_in_qdrant(docs, collection_name="india-spend-1"):
+async def store_docs_in_qdrant(docs, collection_name="india-spend-2"):
     client = create_collection_if_not_exists(collection_name)
 
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
@@ -244,7 +244,7 @@ async def store_daily_articles():
         list: List of article URLs stored for the current day.
     """
     article_urls = []
-    index_name = "india-spend-1"
+    index_name = "india-spend-2"
 
     try:
         api_url = f'https://indiaspend.com/dev/h-api/news'
@@ -1175,7 +1175,7 @@ def preprocess_query(query_text):
     
 #     return results
 
-async def query_qdrant(query_text, collection_name="india-spend-1", top_k=5):
+async def query_qdrant(query_text, collection_name="india-spend-2", top_k=5):
     client = get_qdrant_client()
 
     processed_query = preprocess_query(query_text)
