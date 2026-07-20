@@ -892,20 +892,49 @@ class Chatbot:
 
 
     
+    # def _handle_greeting(self, query: str) -> dict:
+    #     """Handle greeting/non-RAG queries."""
+    #     print(f"Non-RAG query detected: '{query}'. Generating response without retrieval.")
+    #     greeting_prompt = f"""
+    #     You are IndiaSpend AI.
+
+    #     The user has sent a greeting.
+    #     Respond politely, briefly, and professionally.
+    #     Introduce yourself in one sentence.
+    #     Ask how you can help with India-related data or stories.
+    #     """
+
+    #     response = self.llm_nostream.invoke(
+    #         [self.system_message, HumanMessage(content=greeting_prompt)],
+    #         config={"tags": ["final"]}
+    #     )
+
+    #     print("Generated greeting response:", response.content)
+    #     return {
+    #         "messages": [AIMessage(content=response.content)],
+    #         "sources": [],
+    #         "bold_words": [],
+    #         "similar_questions": []
+    #     }
+    
     def _handle_greeting(self, query: str) -> dict:
         """Handle greeting/non-RAG queries."""
         print(f"Non-RAG query detected: '{query}'. Generating response without retrieval.")
         greeting_prompt = f"""
-        You are IndiaSpend AI.
+        You are 'ISignal'.
 
         The user has sent a greeting.
         Respond politely, briefly, and professionally.
-        Introduce yourself in one sentence.
+        Introduce yourself in one sentence as "Isignal".
         Ask how you can help with India-related data or stories.
         """
 
+        greeting_system = SystemMessage(
+            content="You are ISignal, a helpful assistant. Respond only as Isignal."
+        )
+
         response = self.llm_nostream.invoke(
-            [self.system_message, HumanMessage(content=greeting_prompt)],
+            [greeting_system, HumanMessage(content=greeting_prompt)],
             config={"tags": ["final"]}
         )
 
